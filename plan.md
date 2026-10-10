@@ -16,7 +16,7 @@ Build a local Windows hackathon prototype where the player approaches one design
 | Reported version label | `Build 459558 \| Full Version` |
 | Executable compatibility | Not yet established; the reported label is not a verified native executable version |
 | Demo platform | Windows |
-| Interaction | Push-to-talk voice input and voice output |
+| Interaction | Configurable in-game interaction and push-to-talk keys; voice input and output |
 | Initial NPC count | Exactly one configured NPC |
 | Later expansion | Multiple instances of the same controller, configured through data |
 | Dialogue brain | OpenAI API; model selection deferred |
@@ -64,16 +64,24 @@ Version fields may be blank. In that case, preserve the hash and verify compatib
 
 ## 2. Demo experience
 
-1. Approach a configured NPC and select them with a configurable interaction key.
-2. Hold a push-to-talk key, speak Malayalam, and release it.
+1. Approach a configured NPC and press the configured interaction key to open an in-game dialogue box.
+2. Hold the configured push-to-talk key, speak Malayalam, and release it.
 3. Show the recognized transcript and processing state.
 4. The NPC answers in one or two short Malayalam sentences using its own personality and conversation history.
-5. Show Malayalam subtitles and play the NPC's selected ElevenLabs voice.
+5. Show the backend's Malayalam reply in a separate dialogue box inside GTA as soon as reply text arrives. This display is independent of ElevenLabs synthesis and audio playback; play the selected voice when audio is ready.
 6. Leave, return, and ask about something discussed earlier.
 7. Restart the backend and demonstrate that the same NPC still remembers.
 8. End the conversation or reset its memory using explicit controls.
 
 Example exchange: tell one NPC your preferred nickname and favorite food, return later, and ask what they remember. Use fictional/demo information, not sensitive personal details.
+
+### Key bindings and dialogue box behavior
+
+- Provide configurable `INTERACTION_KEY` and `PTT_KEY` settings in the native plugin's local config. Suggested defaults are `E` to open/select the nearby configured NPC and hold `V` to record; verify these do not conflict with the installed game/mod setup before finalizing them.
+- Detect key transitions (pressed/released), not continuous key state, so one press starts one interaction/recording. PTT release, focus loss, target loss, cancellation, or a scene change must stop capture and invalidate the active turn.
+- The separate in-game dialogue box opens for the selected NPC, shows a brief status while processing, then displays the backend reply as soon as its text arrives. Keep the reply visible independently of TTS generation and playback; a TTS error must not remove the text.
+- The box may be replaced by the next reply or closed when the interaction ends. Do not make closing the box cancel provider work unless the player explicitly cancels the conversation.
+- Pass validated UTF-8 reply text to the game-side UI queue. Render on the game/render thread, never from the network worker. Verify Malayalam glyph shaping early; if the built-in GTA font cannot display it, use a custom overlay/font renderer.
 
 **V1 deliverable:** one selected in-game NPC, live voice conversation, persistent memory, and cancellation/reset controls. No second NPC is required to ship V1. Multi-NPC isolation can be exercised with synthetic IDs in backend tests; actual second-character integration belongs to the later scaling milestone.
 
@@ -82,10 +90,10 @@ Example exchange: tell one NPC your preferred nickname and favorite food, return
 | ID | Story | Observable result |
 | --- | --- | --- |
 | U1 | Approach the demo NPC | Interaction becomes available only within the configured range |
-| U2 | Start a conversation | The companion identifies the selected NPC and reports readiness |
+| U2 | Start a conversation | An in-game dialogue box opens and identifies the selected NPC and readiness |
 | U3 | Hold and release PTT | Exactly one recording is captured and one turn begins |
 | U4 | Speak in Malayalam | The recognized transcript is shown without forced English translation |
-| U5 | Receive a reply | The NPC speaks Malayalam and matching subtitles are visible |
+| U5 | Receive a reply | The in-game dialogue box displays the backend's Malayalam reply as soon as it arrives; audio may arrive later or fail |
 | U6 | Ask a follow-up | The NPC uses the actual prior exchange, not an unrelated scripted answer |
 | U7 | Return after leaving | The NPC recalls a harmless previously supplied detail |
 | U8 | Restart the backend | Persistent application memory remains available under the same world/player/NPC IDs |
@@ -104,7 +112,7 @@ The profile is a replaceable configuration choice, not a reason to hard-code a `
 - New missions, maps, a total conversion, or multiplayer integration.
 - Cloning GTA actors or celebrities, or translating/distributing the original game script.
 - Combat control, arbitrary model-generated game commands, or model-selected native function calls.
-- Lip synchronization, positional audio, and native in-game Malayalam typography.
+- Lip synchronization and positional audio.
 - Vector databases, autonomous NPC-to-NPC conversations, and a realtime full-duplex voice pipeline.
 - Social graphs, gossip propagation, autonomous schedules, and scaling benchmarks involving hundreds of NPCs.
 - Replacing GTA's pedestrian population manager or automatically assigning durable identities to all ambient pedestrians.
@@ -113,8 +121,8 @@ The profile is a replaceable configuration choice, not a reason to hard-code a `
 
 ```text
 GTA SA process                         Local companion UI
-  Thin C++ ASI adapter                   Microphone + Unicode subtitles
-  NPC selection + PTT events             Audio playback + reset/cancel
+  Thin C++ ASI adapter                   Microphone + audio playback
+  NPC selection + PTT + dialogue box    Readiness + cancel/reset controls
            |                                      |
            | localhost TCP / NDJSON                | HTTP / WebSocket
            +------------------+-------------------+
@@ -137,11 +145,12 @@ GTA SA process                         Local companion UI
 - **Storage:** SQLite with migrations; choose a driver compatible with the Windows Node version.
 - **Speech integration:** an ElevenLabs adapter behind application-owned recognition/synthesis interfaces. Implementation/model/voice specifics are deferred.
 - **Brain:** an OpenAI adapter behind an application-owned dialogue interface. Model selection is deferred.
-- **UI/audio:** a localhost browser companion for the first milestone. It handles Unicode shaping, microphone capture, playback, and subtitles without changing the game's renderer.
+- **In-game dialogue box:** the ASI adapter owns a separate on-screen dialogue panel and receives reply text from the backend. Keep its layout and text rendering isolated from the NPC domain and provider code. Test Malayalam glyph shaping early; GTA's built-in font may not support it, in which case use a custom Direct3D overlay/font path.
+- **UI/audio:** a localhost browser companion handles microphone capture and audio playback. It does not display the NPC's reply as subtitles; the reply text is displayed in GTA. Audio can play independently from the dialogue box.
 
 Open the companion before playing, explicitly grant microphone access, and unlock audio playback through a user gesture. Test recording/playback while GTA has focus. If browser background capture is unreliable, wrap the companion in a small Electron shell; do not assume either approach works before testing.
 
-**Presentation tradeoff:** the first version speaks through the computer's audio output and shows subtitles in the companion, not inside GTA. Use a second display or a combined recording layout. An in-game overlay is a later integration task.
+**Presentation behavior:** the first version displays NPC reply text in a separate dialogue box inside GTA. The companion handles microphone capture and audio playback. A reply must remain visible when TTS is delayed, unavailable, or playback fails.
 
 ### Dependency rules
 
@@ -223,9 +232,10 @@ const npcA = new NpcController(profiles.npcA, sharedServices);
 | `GameBridge` | Translate validated native messages into application events |
 | `SpeechRecognizer` | Transcribe audio; support a mock implementation |
 | `DialogueBrain` | Produce short character-consistent Malayalam responses |
-| `SpeechSynthesizer` | Generate voice audio; support mocks and subtitle-only fallback |
+| `SpeechSynthesizer` | Generate voice audio; support mocks and text-only fallback |
 | `MemoryStore` | Read/write history and summaries with enforced NPC/player isolation |
-| `CompanionUI` | Capture audio, display states/subtitles, play speech, acknowledge playback |
+| `CompanionUI` | Capture audio, display readiness/errors, play speech, acknowledge playback |
+| `GameDialogueBox` | Render the backend reply text in a separate in-game panel, independent of speech playback |
 
 ### Ownership and object lifetimes
 
@@ -322,7 +332,7 @@ Any active state -> CANCELLED / ERROR -> SELECTED or IDLE
 5. Ask the brain for a short spoken response. Require Malayalam script; permit natural English loanwords where appropriate.
 6. Validate a minimal response schema such as `{ "replyMl": "..." }`. Avoid game actions in the first milestone.
 7. Persist the accepted player utterance and generated response with a turn ID and delivery status.
-8. Synthesize through the ElevenLabs speech adapter using the profile's speech reference. Display subtitles as soon as reply text is available.
+8. Send the accepted reply text to the game bridge for immediate display in the in-game dialogue box, independent of synthesis. Synthesize through the ElevenLabs speech adapter using the profile's speech reference.
 9. Play audio and record playback acknowledgement. Distinguish generated, displayed, spoken, partially played, and failed replies.
 10. Future context must not describe an unplayed/undisplayed reply as something the player heard. Use delivered replies in normal dialogue history.
 
@@ -330,11 +340,11 @@ Any active state -> CANCELLED / ERROR -> SELECTED or IDLE
 
 | Event | Preconditions | Result |
 | --- | --- | --- |
-| Select NPC | Native binding valid, within range, no active turn | Enter `SELECTED`; companion shows original profile name |
+| Select NPC | Interaction key pressed, native binding valid, within range, no active turn | Enter `SELECTED`; open/update in-game dialogue box with original profile name |
 | PTT down | Selected NPC valid, speech capture ready | Freeze target/context and enter `RECORDING` |
 | PTT up | Recording active | Finish one audio artifact and enter `TRANSCRIBING` |
 | Transcript accepted | Same turn/scene/memory generation still active | Persist input, load context, enter `THINKING` |
-| Reply validated | Turn still active, reply within bounds | Persist generated reply, show subtitle, enter `SYNTHESIZING` |
+| Reply validated | Turn still active, reply within bounds | Persist generated reply, enqueue text for in-game dialogue box, enter `SYNTHESIZING` |
 | Audio ready | Turn still active and playback permitted | Start playback and enter `SPEAKING` |
 | Playback completes | Receipt matches current turn | Mark delivered; return to `SELECTED` |
 | Cancel/target loss | Any active stage | Abort work, stop capture/playback, invalidate turn |
@@ -361,7 +371,7 @@ Store the accepted transcript before generating a reply, but exclude that same t
 - Stop microphone capture during NPC playback to prevent feedback; no full-duplex barge-in initially.
 - Provide an explicit cancel action; discard late STT/LLM/TTS results using turn and scene IDs.
 - Stop playback if the NPC becomes invalid or the conversation ends.
-- Preserve generated text when TTS fails and clearly label subtitle-only fallback.
+- Preserve generated text in the in-game dialogue box when TTS fails and clearly show that audio is unavailable.
 - Do not blindly retry a whole turn: provider retries can duplicate costs and replies. Use bounded per-stage retries and idempotent local turn handling.
 - Default audio playback is non-positional. Positional playback and lip sync are stretch goals.
 
@@ -393,7 +403,7 @@ SQLite operations should use parameterized statements and transactions. Store da
 
 - Enforce a unique constraint on `(world_id, player_id, npc_id)` for each conversation scope.
 - A unique turn ID prevents duplicate persistence when messages are retried.
-- Generated reply, subtitle delivery, and audio playback are separate facts; track them separately.
+- Generated reply, dialogue-box display, and audio playback are separate facts; track them separately.
 - Reset increments the scope generation transactionally. Pending writes with an older generation are rejected, even if their API call finishes after reset.
 - Prompt context is loaded afresh for each turn, so deleted history cannot survive in a controller's cached prompt.
 - A backend restart restores history, not an in-flight recording or partially played response.
@@ -441,6 +451,7 @@ Envelope fields: `protocolVersion`, `messageId`, `type`, `gameSessionId`, `scene
 Initial events:
 
 - Native -> backend: `hello`, `npc.selected`, `npc.invalidated`, `ptt.started`, `ptt.stopped`, `conversation.cancelled`, `scene.changed`.
+- Backend -> native: `dialogue.reply`, containing validated reply text, NPC ID, turn ID, and scene/memory generations so the game can render the dialogue box and reject stale replies.
 - Backend -> companion: `capture.start`, `capture.stop`, `conversation.state`, `transcript.ready`, `reply.ready`, `audio.ready`, `playback.stop`.
 - Companion -> backend: audio upload, `playback.started`, `playback.completed`, cancellation/reset requests.
 - Backend -> native: connection health and simple conversation status; no arbitrary native calls.
@@ -499,7 +510,7 @@ gta-sa-malayalam-npcs/
       config/                # Environment/schema validation
     tests/                   # Unit/integration tests with mock providers
   companion/
-    src/                     # Microphone, subtitles, playback, controls
+    src/                     # Microphone, readiness/errors, playback, controls
   profiles/                  # Original NPC profiles; no credentials
   fixtures/                  # Synthetic protocol/dialogue fixtures
   docs/                      # Windows setup, compatibility, demo runbook
@@ -507,7 +518,7 @@ gta-sa-malayalam-npcs/
   .gitignore                 # Secrets, recordings, databases, build output
 ```
 
-Initial local configuration keys: `BRIDGE_HOST`, `BRIDGE_PORT`, `UI_PORT`, `DATA_DIR`, `WORLD_ID`, `PLAYER_ID`, `NPC_PROFILE_PATH`, `INTERACTION_KEY`, `PTT_KEY`, `INTERACTION_RADIUS`, `TURN_TIMEOUT_MS`, `MAX_AUDIO_SECONDS`, and `DEMO_COST_LIMIT`.
+Initial local configuration keys: `BRIDGE_HOST`, `BRIDGE_PORT`, `UI_PORT`, `DATA_DIR`, `WORLD_ID`, `PLAYER_ID`, `NPC_PROFILE_PATH`, `INTERACTION_RADIUS`, `TURN_TIMEOUT_MS`, `MAX_AUDIO_SECONDS`, and `DEMO_COST_LIMIT`. The native plugin's separate local config owns `INTERACTION_KEY` and `PTT_KEY`.
 
 Profiles refer to speech through an application-owned `voiceRef`. Resolve that reference inside the ElevenLabs integration configuration later. Provider credentials are server-side secrets populated at live integration; model/voice specifics are not required to scaffold the project.
 
@@ -571,7 +582,7 @@ Deliverables: schema migrations, context-loading policy, generation-guarded rese
 - [ ] Connect the OpenAI dialogue adapter without changing the controller contract.
 - [ ] Validate a complete Malayalam voice exchange outside GTA before coupling it to input hooks.
 - [ ] Add playback acknowledgement and delivery-state handling.
-- [ ] Add processing indicators, subtitles, cancel, mute, and text-input fallback.
+- [ ] Add processing indicators, in-game dialogue-box replies, cancel, mute, and text-input fallback.
 - [ ] Add cost/time limits and stage-level latency measurements.
 
 **Exit:** a complete live Malayalam voice exchange works independently of the game adapter.
@@ -620,8 +631,8 @@ Deliverables: native adapter, validated protocol, scene lifecycle integration, a
 5. Save load, despawn, cancellation, and reset suppress stale replies and audio.
 6. Generated-but-undelivered speech is distinguishable from delivered dialogue in memory.
 7. Disconnecting the backend does not freeze or crash GTA.
-8. TTS failure leaves usable subtitles; STT failure permits an explicitly selected text fallback.
-9. Malayalam subtitles render correctly in the companion; native glyph rendering is not assumed.
+8. TTS failure leaves the reply visible in the in-game dialogue box; STT failure permits an explicitly selected text fallback.
+9. Configured interaction/PTT bindings trigger one event per key transition, and Malayalam dialogue-box text renders correctly in GTA through the verified font path.
 10. Reset removes associated application memory and temporary artifacts, not arbitrary game files.
 11. No credentials, personal recordings, database files, or proprietary game assets appear in the repository/package.
 12. The demo accurately labels live, cached, mock, and prerecorded behavior.
@@ -646,7 +657,7 @@ Deliverables: native adapter, validated protocol, scene lifecycle integration, a
 - A reconnect resends an already accepted input or completed playback receipt.
 - The companion closes mid-recording or mid-playback.
 - Recognition produces an empty or obviously unusable transcript.
-- TTS fails after subtitles are displayed; the stored delivery state reflects the actual fallback.
+- TTS fails after the in-game dialogue box displays the reply; the stored delivery state reflects the actual fallback.
 - Two companion tabs attempt to capture/play audio simultaneously.
 - A game save reload reuses a pedestrian handle from the previous scene.
 
@@ -799,7 +810,7 @@ At each step, keep one speaker active unless a new arbitration model has been im
 | Pedestrian lifecycle changes | Wrong entity receives a response | Stable app identity plus scene-generation binding and cancellation |
 | Late provider result after reset | Deleted memory reappears | Transactional reset generation checked on every write |
 | Recognition quality is poor | NPC answers the wrong question | Show transcript; offer explicit text correction/input fallback |
-| Speech synthesis is slow/unavailable | Long silence or missing audio | Immediate subtitles and a clearly identified text-only fallback |
+| Speech synthesis is slow/unavailable | Long silence or missing audio | Keep the in-game dialogue box visible and clearly report audio failure |
 | Long/unbounded history | High cost and slow replies | Bounded context; optional later summaries; no unlimited-recall claims |
 | Live service outage | Demo interruption | Prepared, clearly labeled recording or mock mode |
 | Licensing/privacy uncertainty | Public presentation or distribution risk | Review actual agreements and proposed use; do not treat technical success as permission |

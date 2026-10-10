@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-10T23:01:31+05:30 — Specify configurable GTA controls and dialogue box
+
+- Changed: Updated `plan.md`, `docs/game-integration.md`, and `README.md` to specify configurable interaction/PTT keys, suggested E/V defaults pending compatibility checks, and a separate in-game dialogue box that displays backend text independently of TTS playback.
+- Why: Align the planned V1 experience with the requested in-game text box and key-binding behavior.
+- Validation: Reviewed the documentation diff and checked remaining subtitle references for stale descriptions of the planned UI.
+- Limitations: Documentation only. No GTA plugin, key detection, reply bridge, or in-game text rendering is implemented; Malayalam glyph support still needs an early technical check.
+
 ## 2026-10-10T22:10:50+05:30 — Verify provider credentials and document game setup
 
 - Changed: Added `docs/game-integration.md`, linked it from the README, and recorded the local provider-authentication result in project records.

@@ -48,8 +48,9 @@ Implement in this order:
 2. **Backend connection:** connect from a worker to a backend bound only to `127.0.0.1`. Use the versioned UTF-8 newline-delimited JSON protocol described in [plan.md](../plan.md#7-local-bridge-and-security), bounded message sizes, a local token, and reconnect backoff. Do not put provider API keys in the game process.
 3. **Readiness:** send a versioned `hello`; remain unavailable for conversation until the backend and companion both report ready. Reconnect must never resume an old turn.
 4. **Single NPC binding:** configure `demo-npc-001` and one repeatable scene/location. Bind it explicitly to a currently validated game entity. Keep the application ID separate from the runtime entity handle, and attach a scene generation to events. Do not use a recycled pointer/handle as permanent identity or select a random nearest pedestrian as durable identity.
-5. **Interaction input:** add one interaction key and push-to-talk events. On key release, focus loss, target loss, save/load, or scene transition, stop capture/work and invalidate the turn. Emit only `npc.selected`, `ptt.started`, `ptt.stopped`, `npc.invalidated`, and `scene.changed` style events; never accept model-generated game commands.
-6. **Status only:** report selection/readiness to the game as a small indicator if a verified, safe game API exists. If not, keep status in the companion UI.
+5. **Configurable interaction input:** read `INTERACTION_KEY` and `PTT_KEY` from the plugin's local config. Suggested defaults are `E` to open/select the nearby NPC and hold `V` to record; confirm no conflicts on the verified game setup. Detect press/release edges to avoid duplicate events. On PTT release, focus loss, target loss, save/load, or scene transition, stop capture/work and invalidate the turn.
+6. **In-game dialogue box:** render a separate panel from the game-side UI hook. The backend sends validated `dialogue.reply` text to the native bridge; queue it on the network worker and draw it on the game/render thread. Display the reply as soon as text arrives, without waiting for ElevenLabs audio. Test Malayalam rendering early; if the game's built-in font fails, use a custom Direct3D overlay/font renderer.
+7. Emit validated `npc.selected`, `ptt.started`, `ptt.stopped`, `npc.invalidated`, `scene.changed`, and backend-to-native `dialogue.reply` events; never accept model-generated game commands. The companion remains responsible for microphone capture and audio playback.
 
 The backend should verify protocol version, session/scene generation, configured NPC identity, readiness, and message limits before accepting any event. Native queues must be bounded; status updates can be coalesced. Provider results for cancelled or stale generations must be discarded.
 
@@ -59,8 +60,8 @@ The backend should verify protocol version, session/scene generation, configured
 2. Test the protocol with synthetic messages before loading the plugin. Verify duplicate events, malformed JSON, oversize frames, disconnection, cancellation, and scene-generation changes.
 3. Install only the no-op plugin and verify the game launches and shuts down normally. Inspect loader logs and the project-owned plugin log.
 4. Add target selection and entity invalidation, still with providers disabled. Verify that an invalid/despawned target cancels interaction without affecting the game.
-5. Only after those steps pass, connect the companion PTT event to the selected NPC and test a mock turn.
-6. Add live providers after the backend adapters exist. Show Malayalam subtitles independently from audio, and label mock/live status clearly.
+5. Only after those steps pass, connect the configured interaction/PTT keys to the selected NPC and test a mock turn with the separate in-game dialogue box.
+6. Add live providers after the backend adapters exist. Show the backend reply in the GTA dialogue box independently from audio, and label mock/live status clearly.
 7. Verify memory isolation/reset and restart behavior. The current in-memory store loses conversation history on process exit; persistent recall requires the later storage milestone.
 
 Do not claim in-game voice is working until a live exchange has been demonstrated through the verified game binding. The current mock CLI is not connected to the game.
