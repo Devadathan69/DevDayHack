@@ -2,7 +2,7 @@
 
 A local Windows prototype for having a Malayalam conversation with the original character Manu. It provides a browser companion, live OpenAI dialogue, ElevenLabs speech recognition and speech generation, and private SQLite conversation memory.
 
-**Current boundary:** the native x86 ASI now draws a transparent overlay, sends typed turns through an authenticated localhost bridge, and displays reply subtitles with optional audio. Automatic nearby-pedestrian detection is enabled only for the GTA SA 1.0 US executable layouts recognized by Plugin-SDK. The installed `gta-sa.exe` does not match those fingerprints, so it falls back to manual F6/Enter chat and cannot claim NPC proximity on this installation. The rebuilt ASI and verified x86 ASI loader are present in the game root, but the game has not been launched with them.
+**Current boundary:** the native x86 ASI is designed to draw a transparent overlay, send typed turns through an authenticated localhost bridge, and display reply subtitles with optional audio. Automatic nearby-pedestrian detection is enabled only for the GTA SA 1.0 US executable layouts recognized by Plugin-SDK. The installed `gta-sa.exe` does not match those fingerprints, so it falls back to manual F6/Enter chat and cannot claim NPC proximity on this installation. The game was launched once: the ASI loader initialized the plugin and its log reports overlay initialization, but the process exposed no game window, so on-screen rendering and key behavior remain unverified.
 
 ## Start the companion
 
@@ -43,7 +43,7 @@ In the in-game overlay:
 - **Backspace** edits the input; **Escape** cancels the active turn and leaves the conversation.
 - GTA controls are suppressed while typing; Windows, Alt+Tab, and Alt+F4 remain available.
 
-The in-game adapter currently supports typed turns only; microphone push-to-talk remains in the browser companion. This installation uses the manual F6/Enter fallback because its executable is unidentified. The ASI loader and plugin are installed, but in-game rendering, Malayalam shaping, audio, and key behavior remain unverified. In-game replies use the configured OpenAI and ElevenLabs services and require valid provider credentials.
+The in-game adapter currently supports typed turns only; microphone push-to-talk remains in the browser companion. This installation uses the manual F6/Enter fallback because its executable is unidentified. The loader started the plugin and the startup log reports overlay initialization, but the game exposed no targetable window during verification; visible rendering, Malayalam shaping, audio, and key behavior remain unverified. In-game replies use the configured OpenAI and ElevenLabs services and require valid provider credentials.
 
 ## Checks and native build
 
@@ -58,8 +58,8 @@ npm run build:native
 ## Project status
 
 - **Implemented:** profile-based NPC controller, browser companion and live provider adapters, microphone PTT, typed input, subtitles/audio, cancellation and memory; plus an x86 GDI+ overlay, guarded nearby-pedestrian scan, local-token bridge authentication, typed chat, subtitle display, and optional audio playback.
-- **Validated here:** `npm run check` passed; `npm run build:native` built the 214,016-byte x86 ASI; the game-root copy matches the build artifact; and the installed x86 ASI loader matches its official SHA-512 sidecar. The installed executable fails the native layout fingerprint check, so the plugin selects manual F6/Enter fallback.
-- **Not validated:** bridge conversation against a running backend, ASI loader behavior, any in-game interaction, live provider turns, Malayalam shaping/pronunciation, or audio/key behavior with GTA focused.
+- **Validated here:** `npm run check` passed; `npm run build:native` built the 214,016-byte x86 ASI; the game-root copy matches the build artifact; the installed x86 ASI loader matches its official SHA-512 sidecar; and a game launch log confirms the loader initialized the plugin and the plugin reported overlay initialization. The installed executable fails the native layout fingerprint check, so the plugin selects manual F6/Enter fallback.
+- **Not validated:** visible overlay rendering (the launched process had no targetable game window), bridge conversation against a running live backend, any in-game interaction, live provider turns, Malayalam shaping/pronunciation, or audio/key behavior with GTA focused.
 - **Still required:** identify and install a compatible GTA executable/loader combination, load the ASI in game, then validate pedestrian proximity, interaction, reply subtitles/audio, and cancellation. The current installation is not recognized for automatic proximity.
 
 See [plan.md](plan.md), [game integration](docs/game-integration.md), [CHANGELOG.md](CHANGELOG.md), and [AI_USAGE.md](AI_USAGE.md). Submission details in [SUBMISSION.md](SUBMISSION.md) still need participant and repository information.

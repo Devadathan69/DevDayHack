@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-11T00:44:17+05:30 — Attempt in-game overlay verification
+
+- Changed: Updated README, plan, integration status, changelog, and AI usage notes with the first game-launch result. Stopped a stale project backend process that was still running the removed `--mock` mode.
+- Why: User asked to confirm the overlay on the game screen and had previously requested mock mode be removed completely.
+- Validation: Launched the installed `gta-sa.exe` through the desktop app integration. The game bridge log records ASI initialization, an unsupported-executable/manual-chat fallback, and overlay initialization. The process remained alive but Windows reported `MainWindowHandle=0`; the desktop window list exposed no GTA window, so no screenshot or visible overlay check was possible. Confirmed the old mock process exited. No backend conversation or provider request was made; no game files or security settings were changed in this verification step.
+- Limitations: Automatic pedestrian proximity is disabled for this executable. Startup logging does not prove the overlay is visible. F6/Enter, subtitles, Malayalam text, audio, and bridge behavior remain unverified until GTA exposes a visible foreground window.
+
 ## 2026-10-11T00:38:26+05:30 — Remove offline mock runtime
 
 - Changed: Made the companion always use OpenAI and ElevenLabs adapters with SQLite memory. Removed the mock provider, in-memory store, terminal mock demo, mock UI states, `NPC_MODE`, and separate `start:live`/demo commands. `npm start` is now the only server start command. Updated README, integration/submission instructions, and project plan.
