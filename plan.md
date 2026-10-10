@@ -2,7 +2,7 @@
 
 **Delivery strategy:** integrate one NPC end to end, validate the demo, and only then enable additional NPC instances. Build reusable boundaries from the beginning without implementing city-scale behavior prematurely.
 
-**Status (11 October 2026):** The reusable controller, local companion, OpenAI/ElevenLabs adapters, SQLite memory, GDI+ overlay, typed bridge flow, subtitle/audio display, and local bridge-token authentication are implemented. The backend requires provider credentials and stores memory in SQLite; it has no offline runtime. `npm run check` and the x86 native build pass. The rebuilt ASI and verified Ultimate ASI Loader x86 proxy are present in the game root. Nearby-pedestrian memory reads are gated to GTA SA 1.0 US entry points; the installed executable does not match, so the ASI's compiled fallback is manual F6/Enter chat. A game launch confirmed the loader initialized the ASI and the startup log reported overlay initialization, but Windows exposed no targetable game window (the process had no main window handle), so visible rendering and keys could not be checked. No bridge round trip, live voice turn, or in-game exchange has been verified. The old `--mock` backend process was stopped; no provider request was made. Phase 4 remains incomplete; this is not a validated in-game mod.
+**Status (11 October 2026):** The browser/live providers/SQLite backend now also supports a concrete nearby-pedestrian typed interaction with a Direct3D9 in-frame popup and speech-linked subtitles. The native reader recognizes both GTA SA 1.0 US and the installed 2014 executable using guarded code fingerprints; an offline native check confirms the installed player/pool signatures. Selection is pinned to a generation-bearing pedestrian handle; leaving range, recycled slots, scene unload, Escape or focus loss cancels it. Backend HTTP regressions cover scope isolation, cancellation, audio and delivery acknowledgements without paid API calls. All pedestrians currently share Manu's persona/voice, and in-game microphone input remains unimplemented. See README and the integration guide for exact build/deployment/runtime checks. The user confirmed the nearby popup and two consecutive spoken/subtitled replies after ASLR and stable-thread MCI fixes. Core Phase 4 typed interaction is now demonstrated; broader edge-case/other-mod coverage and in-game microphone input remain pending.
 
 ## 1. Goal and confirmed requirements
 
@@ -14,7 +14,7 @@ Build a local Windows hackathon prototype where the player approaches one design
 | --- | --- |
 | Game | Classic GTA San Andreas PC, already installed |
 | Reported version label | `Build 459558 \| Full Version` |
-| Executable compatibility | Not yet established; the reported label is not a verified native executable version |
+| Executable compatibility | Installed 2014 layout verified offline and at its relocated runtime base; core typed gameplay confirmed by the user |
 | Demo platform | Windows |
 | Interaction | Push-to-talk voice input and voice output |
 | Initial NPC count | Exactly one configured NPC |

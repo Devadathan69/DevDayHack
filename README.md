@@ -2,7 +2,7 @@
 
 A local Windows prototype for having a Malayalam conversation with the original character Manu. It provides a browser companion, live OpenAI dialogue, ElevenLabs speech recognition and speech generation, and private SQLite conversation memory.
 
-**Current boundary:** the native x86 ASI is designed to draw a transparent overlay, send typed turns through an authenticated localhost bridge, and display reply subtitles with optional audio. Automatic nearby-pedestrian detection is enabled only for the GTA SA 1.0 US executable layouts recognized by Plugin-SDK. The installed `gta-sa.exe` does not match those fingerprints, so it falls back to manual F6/Enter chat and cannot claim NPC proximity on this installation. The game was launched once: the ASI loader initialized the plugin and its log reports overlay initialization, but the process exposed no game window, so on-screen rendering and key behavior remain unverified.
+**In-game implementation:** the x86 ASI renders the interaction popup and Malayalam subtitles inside Direct3D9, including exclusive fullscreen. It recognizes GTA SA 1.0 US and the installed 2014 executable through guarded code fingerprints. Approach a living, on-foot pedestrian, press **F6 / Enter**, type a message, and press **Enter** to send. The selected pedestrian stays pinned until you leave; generated speech starts only after its corresponding subtitle has been rendered. The user verified the nearby popup and two consecutive spoken replies with matching subtitles in the installed build. Broader edge-case/mod compatibility coverage remains limited.
 
 ## Start the companion
 
@@ -34,32 +34,59 @@ To stop the companion, press **Ctrl+C** in its terminal.
 
 ## In-game overlay and keys
 
-Build the native plugin with `npm run build:native`; the output is `native/build/MalayalamNpcBootstrap.asi`. The overlay uses GDI+ and a transparent layered window, so it does not hook D3D9. On a recognized GTA SA 1.0 US layout, it prompts when CJ is within 3.5 game units of an ambient pedestrian. On the currently installed unrecognized executable, it shows a manual F6/Enter chat prompt and explicitly says proximity is unavailable. Text entry and Escape cancellation are handled only while the GTA process is foreground.
+Close GTA, build and install only the project ASI, then start the backend and launch the game:
+
+```powershell
+npm run build:native
+npm run install:native -- -GameDirectory '..\Grand Theft Auto San Andreas'
+npm start
+```
+
+Use your actual game directory if different. Installation verifies the copied ASI hash and never replaces game executables or loader DLLs; a compatible x86 ASI loader must already be installed. Restart GTA after installing a new build.
+
+Load a save/new game and move CJ within **3.5 game units** of a living, on-foot pedestrian in the same area. The popup is drawn in the game frame rather than a separate topmost window. The nearest eligible pedestrian is selected; entering a car, leaving **5 units**, a removed/recycled pedestrian, unloading the scene, losing focus, or pressing Escape ends the conversation. Unsupported fingerprints disable proximity safely; loading screens do not permanently disable the reader.
 
 In the in-game overlay:
 
-- **F6** or **Enter** starts the chat from the prompt.
-- Type a message and press **Enter** to send it.
-- **Backspace** edits the input; **Escape** cancels the active turn and leaves the conversation.
-- GTA controls are suppressed while typing; Windows, Alt+Tab, and Alt+F4 remain available.
+- **F6** or **Enter** opens the input from the nearby-NPC popup; it does not spend a provider turn on an automatic greeting.
+- Type a message and press **Enter** to send it. Holding the interaction/send key cannot submit repeated turns.
+- **Backspace** edits the input; **Escape** cancels the active turn, speech, and selection.
+- Keyboard controls are suppressed during the conversation; Windows, Alt+Tab, and Alt+F4 remain available. NPCs are not frozen, and this plugin does not control GTA mouse/gamepad input.
+- Malayalam reply text remains visible throughout speech. If speech cannot be generated or played, a visible warning accompanies the text-only reply.
 
-The in-game adapter currently supports typed turns only; microphone push-to-talk remains in the browser companion. This installation uses the manual F6/Enter fallback because its executable is unidentified. The loader started the plugin and the startup log reports overlay initialization, but the game exposed no targetable window during verification; visible rendering, Malayalam shaping, audio, and key behavior remain unverified. In-game replies use the configured OpenAI and ElevenLabs services and require valid provider credentials.
+The in-game adapter supports typed turns only; microphone push-to-talk remains in the browser companion. Native playback temporarily caches the latest generated MP3 at `%TEMP%\MalayalamNpcDemo\npc_reply.mp3`; it is replaced on each reply and deleted on orderly plugin shutdown (forced termination may leave it behind). All pedestrians currently use the original Manu persona and configured voice, not the game's original character voices. Memory is isolated by game process, scene epoch and pedestrian pool handle; it is not persistent character identity across game restarts. In-game replies require the configured live provider credentials. Do not run browser conversations concurrently with in-game conversations: the prototype has one active backend session.
 
 ## Checks and native build
 
 ```powershell
 npm run check
 npm test
+npm run test:native
 npm run build:native
 ```
 
-`npm test` exercises provider request construction with stubbed HTTP responses and checks SQLite persistence, delivery state, reset, and scope isolation. It does not call paid APIs. `npm run build:native` builds the x86 overlay ASI with Visual Studio C++ tools. Its game-memory reader is strictly gated to the recognized GTA SA 1.0 US entry points. The build does not change game files.
+`npm test` exercises stubbed provider requests, SQLite persistence, and authenticated native HTTP routes, including cancellation and pedestrian scope changes. It does not call paid APIs. `npm run test:native` compiles and runs x86 proximity, identity, timer, and executable-fingerprint checks. To verify the installed 2014 executable without modifying it:
+
+```powershell
+npm run test:native -- -GameExecutable '..\Grand Theft Auto San Andreas\gta-sa.exe'
+```
+
+To check repeated speech without another provider call, supply an existing test MP3:
+
+```powershell
+npm run test:native -- -AudioFile 'C:\Temp\test-reply.mp3'
+```
+
+This additionally reproduces MCI's file-lock/thread-local alias behavior and tests the actual production audio dispatcher across five separate turn workers, cancellation and stale requests. No speech fixture is bundled or committed. Direct3D GPU smoke tests and their build commands are documented in the integration guide.
+
+Native checks/builds require Visual Studio's Desktop development with C++ workload. Builds do not change game files; installation is a separate explicit command.
 
 ## Project status
 
-- **Implemented:** profile-based NPC controller, browser companion and live provider adapters, microphone PTT, typed input, subtitles/audio, cancellation and memory; plus an x86 GDI+ overlay, guarded nearby-pedestrian scan, local-token bridge authentication, typed chat, subtitle display, and optional audio playback.
-- **Validated here:** `npm run check` passed; `npm run build:native` built the 214,016-byte x86 ASI; the game-root copy matches the build artifact; the installed x86 ASI loader matches its official SHA-512 sidecar; and a game launch log confirms the loader initialized the plugin and the plugin reported overlay initialization. The installed executable fails the native layout fingerprint check, so the plugin selects manual F6/Enter fallback.
-- **Not validated:** visible overlay rendering (the launched process had no targetable game window), bridge conversation against a running live backend, any in-game interaction, live provider turns, Malayalam shaping/pronunciation, or audio/key behavior with GTA focused.
-- **Still required:** identify and install a compatible GTA executable/loader combination, load the ASI in game, then validate pedestrian proximity, interaction, reply subtitles/audio, and cancellation. The current installation is not recognized for automatic proximity.
+- **Implemented:** live browser companion and x86 in-frame NPC popup, nearest eligible pedestrian selection, scoped bridge turns, typed chat, reply subtitles/speech, cancellation and memory.
+- **Automated verification:** JS syntax checks and 39 backend HTTP/provider/memory tests passed; native interaction tests and the installed executable's two code fingerprints passed without modifying the executable. See the changelog for the final build, renderer smoke, deployment and live-provider results.
+- **Live verification:** the initial ElevenLabs HTTP 401 was resolved after the user corrected local credentials. One explicitly authorized speech-only check returned valid MP3 audio; Windows MCI playback succeeded. Credentials were never printed or committed.
+- **Verified in game (user-confirmed):** the nearby interaction popup appears, and two consecutive replies are audible with matching readable subtitles after the stable-thread audio fix. The final 248,832-byte ASI is installed with a matching build hash; runtime logs confirm the relocated executable fingerprints and actual game-frame rendering.
+- **Remaining coverage:** distance/vehicle/scene eligibility and cancellation have native/backend regression coverage, but a complete gameplay edge-case walkthrough, pronunciation assessment, mouse/gamepad behavior and other-mod compatibility are not verified. This is a working prototype, not a guarantee of perfection on every executable or mod combination.
 
 See [plan.md](plan.md), [game integration](docs/game-integration.md), [CHANGELOG.md](CHANGELOG.md), and [AI_USAGE.md](AI_USAGE.md). Submission details in [SUBMISSION.md](SUBMISSION.md) still need participant and repository information.

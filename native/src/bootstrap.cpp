@@ -15,7 +15,12 @@
 #include <cstdlib>
 #include <cstdint>
 #include <cstring>
+#include <cwchar>
 #include <algorithm>
+#include "interaction.h"
+#include "game-layout.h"
+#include "audio-file.h"
+#include "d3d-overlay.h"
 
 #pragma comment(lib, "winhttp.lib")
 #pragma comment(lib, "gdiplus.lib")
@@ -30,10 +35,10 @@
 
 namespace {
 
-constexpr uintptr_t PLAYER_PED_ADDRESS = 0xB6F5F0;
-constexpr uintptr_t PED_POOL_ADDRESS = 0xB74490;
-constexpr size_t PED_POOL_SLOT_SIZE = 0x7C4; // GTA SA 1.0 US CPool<CPed, CCopPed> slot size.
-constexpr float INTERACT_RADIUS = 3.5f;
+uintptr_t g_playerPedAddress = 0;
+uintptr_t g_pedPoolAddress = 0;
+constexpr size_t PED_POOL_SLOT_SIZE = 0x7C4;
+constexpr float INTERACT_RADIUS = NpcInteraction::StartRadius;
 constexpr DWORD OVERLAY_FPS  = 30;
 constexpr DWORD TIMER_MS     = 1000 / OVERLAY_FPS;
 constexpr INTERNET_PORT DEFAULT_BACKEND_PORT = 4177;
@@ -41,6 +46,9 @@ constexpr int   MAX_INPUT_LEN = 500;
 constexpr DWORD SUBTITLE_MIN_MS = 3000;
 constexpr DWORD SUBTITLE_PER_CHAR_MS = 80;
 constexpr UINT_PTR TIMER_ID  = 42001;
+constexpr UINT AUDIO_STOP_MESSAGE = WM_APP + 41;
+constexpr UINT AUDIO_PLAY_MESSAGE = WM_APP + 42;
+constexpr UINT AUDIO_WRITE_MESSAGE = WM_APP + 43;
 
 const wchar_t* const OVERLAY_CLASS = L"MalayalamNpcOverlay_v1";
 const wchar_t* const BACKEND_HOST  = L"127.0.0.1";
@@ -73,6 +81,11 @@ struct OverlayData {
     bool             backendOk   = false;
     bool             nearNpc     = false;
     int              cursorBlink = 0;
+    NpcInteraction::Ped nearbyPed;
+    NpcInteraction::Ped selectedPed;
+    unsigned long    subtitleGeneration = 0;
+    uint64_t         subtitleFrame = 0;
+    bool             audioPlaying = false;
 };
 
 // ============================================================================
@@ -89,7 +102,6 @@ HWND                g_overlay    = nullptr;
 HWND                g_gameWnd    = nullptr;
 HHOOK               g_kbHook     = nullptr;
 OverlayData         g_data;
-std::mutex          g_audioMutex;
 std::mutex          g_bridgeConfigMutex;
 std::string         g_bridgeToken;
 INTERNET_PORT       g_backendPort = DEFAULT_BACKEND_PORT;
@@ -97,6 +109,11 @@ ULONG_PTR           g_gdipToken  = 0;
 std::wstring        g_tempDir;
 std::atomic<bool>  g_gameLayoutSupported{false};
 std::atomic<unsigned long> g_conversationGeneration{0};
+std::mutex g_turnMutex;
+std::atomic<bool> g_cancelPending{false};
+std::atomic<unsigned int> g_selectedPedHandle{0};
+std::atomic<unsigned int> g_sceneEpoch{0};
+std::atomic<unsigned int> g_heldKeys[256]{};
 
 // ============================================================================
 // Section 4: Utility — safe memory, string conversion, logging
@@ -160,19 +177,33 @@ bool EnsureDir(const std::wstring& path) {
     return GetLastError() == ERROR_ALREADY_EXISTS;
 }
 
-bool IsSupportedGta10Us() {
+bool DetectGameLayout() {
     HMODULE module = GetModuleHandleW(nullptr);
-    if (!module || reinterpret_cast<uintptr_t>(module) != 0x400000) return false;
+    if (!module) return false;
+    const uintptr_t runtimeBase = reinterpret_cast<uintptr_t>(module);
     IMAGE_DOS_HEADER dos{};
     if (!ReadMemorySafe(module, &dos, sizeof(dos)) || dos.e_magic != IMAGE_DOS_SIGNATURE ||
         dos.e_lfanew <= 0 || dos.e_lfanew > 0x10000) return false;
     IMAGE_NT_HEADERS nt{};
     if (!ReadMemorySafe(reinterpret_cast<const BYTE*>(module) + dos.e_lfanew, &nt, sizeof(nt)) ||
         nt.Signature != IMAGE_NT_SIGNATURE || nt.FileHeader.Machine != IMAGE_FILE_MACHINE_I386) return false;
-
-    // These are the two GTA SA 1.0 US entry points recognized by Plugin-SDK.
-    return nt.OptionalHeader.AddressOfEntryPoint == 0x424570 ||
-           nt.OptionalHeader.AddressOfEntryPoint == 0x42457C;
+    const DWORD entry = nt.OptionalHeader.AddressOfEntryPoint;
+    if (entry == 0x424570 || entry == 0x42457C) {
+        if (runtimeBase != 0x400000) return false;
+        g_playerPedAddress = 0xB6F5F0;
+        g_pedPoolAddress = 0xB74490;
+        return true;
+    }
+    // The installed 2014 layout has different globals. Verify both code references,
+    // not just its entry point, before reading any player or pool memory.
+    if (entry != NpcGameLayout::InstalledEntry || nt.OptionalHeader.SizeOfImage != NpcGameLayout::InstalledImageSize) return false;
+    BYTE playerBytes[sizeof(NpcGameLayout::PlayerCode)]{}, poolBytes[sizeof(NpcGameLayout::PoolCode)]{};
+    if (!ReadMemorySafe(reinterpret_cast<const void*>(NpcGameLayout::Resolve(runtimeBase, NpcGameLayout::PlayerCodeAddress)), playerBytes, sizeof(playerBytes)) ||
+        !ReadMemorySafe(reinterpret_cast<const void*>(NpcGameLayout::Resolve(runtimeBase, NpcGameLayout::PoolCodeAddress)), poolBytes, sizeof(poolBytes)) ||
+        !NpcGameLayout::MatchesInstalled(entry, nt.OptionalHeader.SizeOfImage, playerBytes, poolBytes, runtimeBase)) return false;
+    g_playerPedAddress = NpcGameLayout::Resolve(runtimeBase, 0xC100D0);
+    g_pedPoolAddress = NpcGameLayout::Resolve(runtimeBase, 0xC018A8);
+    return true;
 }
 
 void WriteLog(const wchar_t* msg) {
@@ -242,27 +273,28 @@ std::string ExtractJsonString(const std::string& json, const char* key) {
 }
 
 // ============================================================================
-// Section 5: Game memory — nearest pedestrian (GTA SA 1.0 US only)
+// Section 5: Game memory — nearest pedestrian on fingerprinted layouts
 // ============================================================================
 
-bool ReadPlayerPosition(float& x, float& y, float& z) {
-    if (!g_gameLayoutSupported.load()) return false;
-    DWORD pedPtr = 0;
-    if (!ReadMemorySafe(reinterpret_cast<const void*>(PLAYER_PED_ADDRESS), &pedPtr, sizeof(pedPtr)) ||
-        pedPtr < 0x10000u) return false;
+bool IsInsideGameImage(DWORD address);
 
-    // CEntity::m_matrix at offset +0x14
-    DWORD matPtr = 0;
-    if (!ReadMemorySafe(reinterpret_cast<const void*>(pedPtr + 0x14), &matPtr, sizeof(matPtr))) return false;
-    if (matPtr < 0x10000u) return false;
-
-    // CMatrix position vector at +0x30 (right.x, right.y, right.z, 0,  up.x, up.y, up.z, 0,
-    //                                    at.x, at.y, at.z, 0,  pos.x, pos.y, pos.z, 0)
-    float pos[3];
-    if (!ReadMemorySafe(reinterpret_cast<const void*>(matPtr + 0x30), pos, sizeof(pos))) return false;
-
-    x = pos[0]; y = pos[1]; z = pos[2];
-    return (x > -4000.f && x < 4000.f && y > -4000.f && y < 4000.f && z > -200.f && z < 1200.f);
+bool ReadPed(uintptr_t address, NpcInteraction::Ped& ped) {
+    DWORD vtable = 0, matrix = 0;
+    float position[3]{};
+    BYTE vehicleFlags = 0;
+    ped.address = address;
+    if (address < 0x10000u ||
+        !ReadMemorySafe(reinterpret_cast<const void*>(address), &vtable, sizeof(vtable)) || !IsInsideGameImage(vtable) ||
+        !ReadMemorySafe(reinterpret_cast<const void*>(address + 0x14), &matrix, sizeof(matrix)) || matrix < 0x10000u ||
+        !ReadMemorySafe(reinterpret_cast<const void*>(matrix + 0x30), position, sizeof(position)) ||
+        !ReadMemorySafe(reinterpret_cast<const void*>(address + 0x540), &ped.health, sizeof(ped.health)) ||
+        !ReadMemorySafe(reinterpret_cast<const void*>(address + 0x46D), &vehicleFlags, sizeof(vehicleFlags)) ||
+        !ReadMemorySafe(reinterpret_cast<const void*>(address + 0x2F), &ped.area, sizeof(ped.area))) return false;
+    ped.x = position[0]; ped.y = position[1]; ped.z = position[2];
+    ped.inVehicle = (vehicleFlags & 1) != 0;
+    return std::isfinite(ped.x) && std::isfinite(ped.y) && std::isfinite(ped.z) &&
+        std::isfinite(ped.health) && ped.x > -4000 && ped.x < 4000 && ped.y > -4000 && ped.y < 4000 &&
+        ped.z > -200 && ped.z < 1200;
 }
 
 bool IsInsideGameImage(DWORD address) {
@@ -279,53 +311,37 @@ bool IsInsideGameImage(DWORD address) {
     return end > begin && address >= begin && address < end;
 }
 
-bool FindNearbyPed(float playerX, float playerY, float playerZ, bool& nearPed) {
-    nearPed = false;
+bool FindNearbyPed(NpcInteraction::Ped& nearest, const NpcInteraction::Ped& selected, bool& selectedInRange) {
+    nearest = {};
+    selectedInRange = false;
     if (!g_gameLayoutSupported.load()) return false;
-
-    DWORD playerPed = 0;
-    DWORD pool = 0;
-    if (!ReadMemorySafe(reinterpret_cast<const void*>(PLAYER_PED_ADDRESS), &playerPed, sizeof(playerPed)) ||
-        !ReadMemorySafe(reinterpret_cast<const void*>(PED_POOL_ADDRESS), &pool, sizeof(pool)) ||
-        playerPed < 0x10000u || pool < 0x10000u) return false;
-
-    DWORD objects = 0;
-    DWORD flags = 0;
+    DWORD playerAddress = 0, pool = 0, objects = 0, flags = 0;
     int poolSize = 0;
-    if (!ReadMemorySafe(reinterpret_cast<const void*>(pool), &objects, sizeof(objects)) ||
+    NpcInteraction::Ped player;
+    if (!ReadMemorySafe(reinterpret_cast<const void*>(g_playerPedAddress), &playerAddress, sizeof(playerAddress)) ||
+        !ReadPed(playerAddress, player) ||
+        !ReadMemorySafe(reinterpret_cast<const void*>(g_pedPoolAddress), &pool, sizeof(pool)) || pool < 0x10000u ||
+        !ReadMemorySafe(reinterpret_cast<const void*>(pool), &objects, sizeof(objects)) ||
         !ReadMemorySafe(reinterpret_cast<const void*>(pool + 4), &flags, sizeof(flags)) ||
         !ReadMemorySafe(reinterpret_cast<const void*>(pool + 8), &poolSize, sizeof(poolSize)) ||
         objects < 0x10000u || flags < 0x10000u || poolSize < 1 || poolSize > 512) return false;
-
-    const float radiusSquared = INTERACT_RADIUS * INTERACT_RADIUS;
+    float nearestDistance = INTERACT_RADIUS * INTERACT_RADIUS;
     for (int i = 0; i < poolSize; ++i) {
         BYTE slotFlags = 0;
         if (!ReadMemorySafe(reinterpret_cast<const void*>(flags + i), &slotFlags, sizeof(slotFlags))) return false;
-        if ((slotFlags & 0x80u) != 0) continue; // CPool slot is empty.
-
-        const uint64_t pedAddress64 = static_cast<uint64_t>(objects) + static_cast<uint64_t>(i) * PED_POOL_SLOT_SIZE;
-        if (pedAddress64 > 0xFFFFFFFFu || pedAddress64 == playerPed) continue;
-        const uintptr_t pedAddress = static_cast<uintptr_t>(pedAddress64);
-
-        DWORD vtable = 0;
-        DWORD matrix = 0;
-        if (!ReadMemorySafe(reinterpret_cast<const void*>(pedAddress), &vtable, sizeof(vtable)) ||
-            !IsInsideGameImage(vtable) ||
-            !ReadMemorySafe(reinterpret_cast<const void*>(pedAddress + 0x14), &matrix, sizeof(matrix)) ||
-            matrix < 0x10000u) continue;
-
-        float position[3]{};
-        if (!ReadMemorySafe(reinterpret_cast<const void*>(matrix + 0x30), position, sizeof(position))) continue;
-        if (position[0] <= -4000.f || position[0] >= 4000.f ||
-            position[1] <= -4000.f || position[1] >= 4000.f ||
-            position[2] <= -200.f || position[2] >= 1200.f) continue;
-
-        const float dx = position[0] - playerX;
-        const float dy = position[1] - playerY;
-        const float dz = position[2] - playerZ;
-        if (dx * dx + dy * dy + dz * dz <= radiusSquared) {
-            nearPed = true;
-            return true;
+        if ((slotFlags & 0x80u) != 0) continue;
+        const uint64_t address = static_cast<uint64_t>(objects) + static_cast<uint64_t>(i) * PED_POOL_SLOT_SIZE;
+        if (address > 0xFFFFFFFFu || address == playerAddress) continue;
+        NpcInteraction::Ped candidate;
+        if (!ReadPed(static_cast<uintptr_t>(address), candidate)) continue;
+        candidate.handle = static_cast<uint32_t>(i) * 256 + slotFlags;
+        if (NpcInteraction::SamePed(selected, candidate))
+            selectedInRange = NpcInteraction::CanTalk(player, candidate, NpcInteraction::LeaveRadius);
+        if (!NpcInteraction::CanTalk(player, candidate, INTERACT_RADIUS)) continue;
+        const float distance = NpcInteraction::DistanceSquared(player, candidate);
+        if (distance <= nearestDistance) {
+            nearestDistance = distance;
+            nearest = candidate;
         }
     }
     return true;
@@ -455,61 +471,104 @@ bool LoadBridgeToken() {
 // Section 8: Audio playback (MCI)
 // ============================================================================
 
+struct AudioPlayRequest {
+    const std::wstring* path;
+    unsigned long generation;
+    DWORD duration = 0;
+    bool played = false;
+};
+struct AudioWriteRequest {
+    const std::string* bytes;
+    unsigned long generation;
+    bool written = false;
+};
+
 void StopAudio() {
-    std::lock_guard<std::mutex> lock(g_audioMutex);
-    mciSendStringW(L"close npc_reply", nullptr, 0, nullptr);
+    if (GetCurrentThreadId() == g_threadId)
+        mciSendStringW(L"close npc_reply", nullptr, 0, nullptr);
+    else if (g_overlay && IsWindow(g_overlay))
+        SendMessageW(g_overlay, AUDIO_STOP_MESSAGE, 0, 0);
 }
 
-bool PlayAudioFile(const std::wstring& filePath) {
-    std::lock_guard<std::mutex> lock(g_audioMutex);
+bool AudioIsPlaying() {
+    wchar_t mode[32]{};
+    return mciSendStringW(L"status npc_reply mode", mode, 32, nullptr) == 0 && wcscmp(mode, L"playing") == 0;
+}
+
+bool PlayAudioOnOverlay(const std::wstring& filePath, unsigned long generation, DWORD& duration) {
+    if (!g_running.load() || generation != g_conversationGeneration.load()) return false;
     mciSendStringW(L"close npc_reply", nullptr, 0, nullptr);
     std::wstring cmd = L"open \"" + filePath + L"\" type mpegvideo alias npc_reply";
-    MCIERROR err = mciSendStringW(cmd.c_str(), nullptr, 0, nullptr);
-    if (err != 0) return false;
-    return mciSendStringW(L"play npc_reply", nullptr, 0, nullptr) == 0;
+    if (mciSendStringW(cmd.c_str(), nullptr, 0, nullptr) != 0) return false;
+    mciSendStringW(L"set npc_reply time format milliseconds", nullptr, 0, nullptr);
+    wchar_t length[32]{};
+    if (mciSendStringW(L"status npc_reply length", length, 32, nullptr) == 0)
+        duration = std::wcstoul(length, nullptr, 10);
+    if (mciSendStringW(L"play npc_reply", nullptr, 0, nullptr) == 0) return true;
+    mciSendStringW(L"close npc_reply", nullptr, 0, nullptr);
+    return false;
 }
 
-bool DownloadAndPlayAudio(const std::string& audioUrlPath) {
-    if (audioUrlPath.empty()) return false;
+bool PlayAudioFile(const std::wstring& filePath, unsigned long generation, DWORD& duration) {
+    if (!g_running.load() || !g_overlay || !IsWindow(g_overlay)) return false;
+    AudioPlayRequest request{&filePath, generation};
+    SendMessageW(g_overlay, AUDIO_PLAY_MESSAGE, 0, reinterpret_cast<LPARAM>(&request));
+    duration = request.duration;
+    return request.played;
+}
+
+bool DownloadAudio(const std::string& audioUrlPath, unsigned long generation) {
+    if (audioUrlPath.rfind("/api/audio/", 0) != 0) return false;
     std::wstring widePath = Utf8ToWide(audioUrlPath);
     HttpResponse resp = HttpRequest(L"GET", widePath.c_str());
     if (!resp.ok() || resp.body.empty()) return false;
 
-    std::wstring filePath = g_tempDir + L"\\npc_reply.mp3";
-    HANDLE f = CreateFileW(filePath.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (f == INVALID_HANDLE_VALUE) return false;
-    DWORD bw = 0;
-    const BOOL writeOk = WriteFile(f, resp.body.data(), (DWORD)resp.body.size(), &bw, nullptr);
-    CloseHandle(f);
-    if (!writeOk || bw != resp.body.size()) return false;
-
-    return PlayAudioFile(filePath);
+    if (!g_running.load() || !g_overlay || !IsWindow(g_overlay)) return false;
+    AudioWriteRequest request{&resp.body, generation};
+    SendMessageW(g_overlay, AUDIO_WRITE_MESSAGE, 0, reinterpret_cast<LPARAM>(&request));
+    return request.written;
 }
 
 // ============================================================================
 // Section 9: Backend interaction (runs on detached threads)
 // ============================================================================
 
-bool BackendSelect() {
+bool BackendSelect(unsigned int pedHandle) {
+    LoadBridgeToken();
     const std::string body = "{\"gameSessionId\":\"gta-" + std::to_string(GetCurrentProcessId()) +
-        "\",\"sceneGeneration\":0}";
+        "\",\"sceneGeneration\":" + std::to_string(pedHandle) + "}";
     return HttpRequest(L"POST", L"/api/select", body, L"application/json").ok();
 }
 
 void BackendCancel() {
-    HttpRequest(L"POST", L"/api/cancel", "{}", L"application/json", 2000);
+    HttpRequest(L"POST", L"/api/deselect", "{}", L"application/json", 2000);
 }
 
-void BackendTurn(const std::wstring& text) {
-    const unsigned long generation = g_conversationGeneration.load();
+void ExitConversation() {
+    g_conversationGeneration.fetch_add(1);
     {
-        std::lock_guard lk(g_data.mtx);
-        g_data.state = UiState::PROCESSING;
-        g_data.statusText = L"Manu is thinking...";
+        std::lock_guard<std::mutex> lock(g_data.mtx);
+        g_data.state = UiState::HIDDEN;
+        g_data.inputText.clear();
+        g_data.subtitle.clear();
+        g_data.selectedPed = {};
+        g_data.audioPlaying = false;
+        g_data.subtitleFrame = 0;
     }
+    StopAudio();
+    g_cancelPending.store(true);
+    std::thread([]() {
+        BackendCancel();
+        g_cancelPending.store(false);
+    }).detach();
+}
 
-    // Select first (idempotent). This is a local bridge request, not a game-thread call.
-    if (!BackendSelect()) {
+bool GameIsForeground();
+
+void BackendTurn(const std::wstring& text, unsigned long generation, unsigned int pedHandle) {
+    std::lock_guard<std::mutex> turnLock(g_turnMutex);
+    if (!g_running.load() || generation != g_conversationGeneration.load()) return;
+    if (!BackendSelect(pedHandle)) {
         std::lock_guard lk(g_data.mtx);
         if (generation == g_conversationGeneration.load()) {
             g_data.state = UiState::ERROR_SHOW;
@@ -519,6 +578,10 @@ void BackendTurn(const std::wstring& text) {
         return;
     }
 
+    if (!g_running.load() || generation != g_conversationGeneration.load()) {
+        BackendCancel();
+        return;
+    }
     std::string utf8Text = WideToUtf8(text);
     const std::string escaped = EscapeJsonString(utf8Text);
     std::string body = R"({"text":")" + escaped + R"("})";
@@ -529,6 +592,7 @@ void BackendTurn(const std::wstring& text) {
     if (!resp.ok()) {
         std::string errMsg = ExtractJsonString(resp.body, "error");
         std::lock_guard lk(g_data.mtx);
+        if (generation != g_conversationGeneration.load()) return;
         g_data.state = UiState::ERROR_SHOW;
         g_data.errorText = errMsg.empty() ? L"Backend returned an error." : Utf8ToWide(errMsg);
         g_data.subtitleEnd = GetTickCount() + 4000;
@@ -538,50 +602,76 @@ void BackendTurn(const std::wstring& text) {
     std::string replyMl = ExtractJsonString(resp.body, "replyMl");
     std::string audioUrl = ExtractJsonString(resp.body, "audioUrl");
     std::string turnId = ExtractJsonString(resp.body, "turnId");
+    const std::string speechError = ExtractJsonString(resp.body, "speechError");
 
     if (replyMl.empty()) {
         std::lock_guard lk(g_data.mtx);
+        if (generation != g_conversationGeneration.load()) return;
         g_data.state = UiState::ERROR_SHOW;
         g_data.errorText = L"Manu had nothing to say. Try again.";
         g_data.subtitleEnd = GetTickCount() + 3000;
         return;
     }
 
-    std::wstring wideReply = Utf8ToWide(replyMl);
-    DWORD duration = (DWORD)(SUBTITLE_MIN_MS + wideReply.size() * SUBTITLE_PER_CHAR_MS);
-    if (duration > 15000) duration = 15000;
-
+    const bool audioDownloaded = !audioUrl.empty() && DownloadAudio(audioUrl, generation);
+    if (!g_running.load() || generation != g_conversationGeneration.load()) return;
+    const std::wstring wideReply = Utf8ToWide(replyMl);
+    const DWORD readingDuration = static_cast<DWORD>(std::min<size_t>(15000,
+        SUBTITLE_MIN_MS + wideReply.size() * SUBTITLE_PER_CHAR_MS));
     {
-        std::lock_guard lk(g_data.mtx);
+        std::lock_guard<std::mutex> lock(g_data.mtx);
+        if (generation != g_conversationGeneration.load()) return;
         g_data.subtitle = wideReply;
-        g_data.subtitleEnd = GetTickCount() + duration;
+        g_data.subtitleEnd = GetTickCount() + readingDuration;
+        g_data.subtitleGeneration = generation;
+        g_data.subtitleFrame = 0;
+        g_data.audioPlaying = false;
+        g_data.statusText.clear();
         g_data.state = UiState::SUBTITLE;
     }
-
-    // Try audio playback; subtitles remain visible if the generated audio is unavailable.
-    bool audioPlayed = false;
-    if (!audioUrl.empty()) {
-        audioPlayed = DownloadAndPlayAudio(audioUrl);
+    bool subtitleDisplayed = false;
+    const DWORD renderDeadline = GetTickCount() + 2000;
+    while (g_running.load() && generation == g_conversationGeneration.load() &&
+        !NpcInteraction::DeadlineReached(GetTickCount(), renderDeadline)) {
+        uint64_t frame = 0;
+        {
+            std::lock_guard<std::mutex> lock(g_data.mtx);
+            frame = g_data.subtitleFrame;
+        }
+        if (frame != 0 && NpcD3D::PresentedFrame() >= frame && GameIsForeground()) {
+            subtitleDisplayed = true;
+            break;
+        }
+        Sleep(20);
     }
-    if (!g_running.load() || generation != g_conversationGeneration.load()) {
-        StopAudio();
-        return;
+    if (!g_running.load() || generation != g_conversationGeneration.load()) return;
+    DWORD audioDuration = 0;
+    const bool audioPlayed = subtitleDisplayed && audioDownloaded &&
+        PlayAudioFile(g_tempDir + L"\\npc_reply.mp3", generation, audioDuration);
+    {
+        std::lock_guard<std::mutex> lock(g_data.mtx);
+        if (generation != g_conversationGeneration.load()) return;
+        g_data.audioPlaying = audioPlayed;
+        g_data.statusText = audioPlayed ? L"" : (speechError.empty()
+            ? L"Voice unavailable; displaying the reply as subtitles."
+            : Utf8ToWide(speechError));
+        g_data.subtitleEnd = GetTickCount() + (audioPlayed ? std::max<DWORD>(readingDuration, audioDuration + 500) : readingDuration);
+        if (!subtitleDisplayed) {
+            g_data.state = UiState::ERROR_SHOW;
+            g_data.errorText = L"Reply not displayed. Keep GTA focused and retry.";
+            g_data.subtitle.clear();
+            g_data.subtitleEnd = GetTickCount() + 4000;
+        }
     }
-
-    // Acknowledge delivery
-    if (!turnId.empty()) {
-        std::string ackBody = R"({"turnId":")" + turnId + R"(","subtitleDisplayed":true,"audioPlayed":)" +
-            (audioPlayed ? "true" : "false") + "}";
+    if (!turnId.empty() && (subtitleDisplayed || audioPlayed)) {
+        const std::string ackBody = R"({"turnId":")" + EscapeJsonString(turnId) +
+            R"(","subtitleDisplayed":)" + (subtitleDisplayed ? "true" : "false") +
+            R"(,"audioPlayed":)" + (audioPlayed ? "true" : "false") + "}";
         HttpRequest(L"POST", L"/api/delivery", ackBody, L"application/json");
+    } else if (!turnId.empty()) {
+        const std::string cancelBody = R"({"turnId":")" + EscapeJsonString(turnId) + "\"}";
+        HttpRequest(L"POST", L"/api/cancel", cancelBody, L"application/json", 2000);
     }
-}
-
-void DoGreeting() {
-    BackendTurn(L"Hello!");
-}
-
-void DoSendText(const std::wstring& text) {
-    BackendTurn(text);
 }
 
 struct GameWindowSearch {
@@ -641,10 +731,18 @@ DWORD WINAPI BridgeHeartbeatProc(LPVOID) {
 // ============================================================================
 
 LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
-    if (nCode != HC_ACTION || !GameIsForeground()) return CallNextHookEx(g_kbHook, nCode, wParam, lParam);
+    if (nCode != HC_ACTION) return CallNextHookEx(g_kbHook, nCode, wParam, lParam);
     KBDLLHOOKSTRUCT* kb = reinterpret_cast<KBDLLHOOKSTRUCT*>(lParam);
-    if (wParam != WM_KEYDOWN && wParam != WM_SYSKEYDOWN) return CallNextHookEx(g_kbHook, nCode, wParam, lParam);
     const DWORD vk = kb->vkCode;
+    if (vk >= 256) return CallNextHookEx(g_kbHook, nCode, wParam, lParam);
+    if (wParam == WM_KEYUP || wParam == WM_SYSKEYUP) {
+        const unsigned int held = g_heldKeys[vk].exchange(0);
+        if (held == 2 && GameIsForeground()) return 1;
+        return CallNextHookEx(g_kbHook, nCode, wParam, lParam);
+    }
+    if ((wParam != WM_KEYDOWN && wParam != WM_SYSKEYDOWN) || !GameIsForeground())
+        return CallNextHookEx(g_kbHook, nCode, wParam, lParam);
+    const bool repeated = g_heldKeys[vk].exchange(1) != 0;
 
     UiState state;
     {
@@ -661,16 +759,12 @@ LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     if (vk == VK_F4 && (GetAsyncKeyState(VK_MENU) & 0x8000)) return CallNextHookEx(g_kbHook, nCode, wParam, lParam);
 
     // Escape cancels even while a backend response is still processing.
+    if (conversationActive || (state == UiState::PROMPT && (vk == VK_F6 || vk == VK_RETURN)))
+        g_heldKeys[vk].store(2);
+    if ((vk == VK_F6 || vk == VK_RETURN || vk == VK_ESCAPE) && repeated &&
+        (conversationActive || state == UiState::PROMPT)) return 1;
     if (vk == VK_ESCAPE && conversationActive) {
-        g_conversationGeneration.fetch_add(1);
-        {
-            std::lock_guard<std::mutex> lock(g_data.mtx);
-            g_data.state = g_gameLayoutSupported.load() ? UiState::HIDDEN : UiState::PROMPT;
-            g_data.inputText.clear();
-            g_data.subtitle.clear();
-        }
-        StopAudio();
-        std::thread([]() { BackendCancel(); }).detach();
+        ExitConversation();
         return 1;
     }
 
@@ -678,19 +772,19 @@ LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     // Enter as a game/menu action. Polling GetAsyncKeyState on a timer can miss
     // short presses because other game code may clear its transition bit.
     if (state == UiState::PROMPT && (vk == VK_F6 || vk == VK_RETURN)) {
-        bool startConversation = false;
-        {
-            std::lock_guard<std::mutex> lock(g_data.mtx);
-            if (g_data.state == UiState::PROMPT) {
-                g_data.state = UiState::GREETING;
-                startConversation = true;
-            }
+        std::lock_guard<std::mutex> lock(g_data.mtx);
+        if (g_data.state == UiState::PROMPT && g_data.nearbyPed.address && !g_cancelPending.load() && NpcD3D::IsRendering()) {
+            g_data.selectedPed = g_data.nearbyPed;
+            g_selectedPedHandle.store(NpcInteraction::ScopeGeneration(g_sceneEpoch.load(), g_data.selectedPed.handle));
+            g_data.inputText.clear();
+            g_data.subtitle.clear();
+            g_data.state = UiState::READY;
+            g_conversationGeneration.fetch_add(1);
         }
-        if (startConversation) std::thread([]() { DoGreeting(); }).detach();
         return 1;
     }
 
-    if (!isTyping) return CallNextHookEx(g_kbHook, nCode, wParam, lParam);
+    if (!isTyping) return conversationActive ? 1 : CallNextHookEx(g_kbHook, nCode, wParam, lParam);
 
     // Enter sends the current text; an empty input is ignored.
     if (vk == VK_RETURN) {
@@ -705,7 +799,9 @@ LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
             }
         }
         if (!textToSend.empty()) {
-            std::thread([text = std::move(textToSend)]() { DoSendText(text); }).detach();
+            const unsigned long generation = g_conversationGeneration.load();
+            const unsigned int handle = g_selectedPedHandle.load();
+            std::thread([text = std::move(textToSend), generation, handle]() { BackendTurn(text, generation, handle); }).detach();
         }
         return 1;
     }
@@ -719,18 +815,19 @@ LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
 
     BYTE kbState[256]{};
     GetKeyboardState(kbState);
-    wchar_t ch[4]{};
-    const int result = ToUnicode(vk, kb->scanCode, kbState, ch, 4, 0);
-    if (result == 1 && ch[0] >= 32) {
+    for (const int modifier : {VK_SHIFT, VK_CONTROL, VK_MENU})
+        kbState[modifier] = (GetAsyncKeyState(modifier) & 0x8000) ? 0x80 : 0;
+    kbState[VK_CAPITAL] = static_cast<BYTE>(GetKeyState(VK_CAPITAL) & 1);
+    DWORD foregroundThread = GetWindowThreadProcessId(GetForegroundWindow(), nullptr);
+    wchar_t ch[8]{};
+    const int result = ToUnicodeEx(vk, kb->scanCode, kbState, ch, 8, 0, GetKeyboardLayout(foregroundThread));
+    if (result > 0 && ch[0] >= 32) {
         std::lock_guard<std::mutex> lock(g_data.mtx);
-        if ((int)g_data.inputText.size() < MAX_INPUT_LEN) g_data.inputText += ch[0];
+        const size_t available = MAX_INPUT_LEN - g_data.inputText.size();
+        g_data.inputText.append(ch, std::min<size_t>(available, result));
         if (g_data.state == UiState::READY) g_data.state = UiState::TYPING;
-        return 1;
     }
-
-    // While entering text, suppress GTA controls; leave the voice fallback key alone.
-    if (vk != VK_F7) return 1;
-    return CallNextHookEx(g_kbHook, nCode, wParam, lParam);
+    return 1;
 }
 
 // ============================================================================
@@ -763,9 +860,10 @@ void DrawRoundedRect(Gdiplus::Graphics& g, const Gdiplus::RectF& r, float radius
     g.DrawPath(&pen, &path);
 }
 
-void RenderOverlay(HWND hwnd, int w, int h, POINT ptDst) {
+void RenderOverlay(int w, int h) {
     if (w <= 0 || h <= 0) return;
-
+    bool renderingSubtitle = false;
+    unsigned long renderGeneration = 0;
     Gdiplus::Bitmap bitmap(w, h, PixelFormat32bppARGB);
     {
     Gdiplus::Graphics gfx(&bitmap);
@@ -794,8 +892,10 @@ void RenderOverlay(HWND hwnd, int w, int h, POINT ptDst) {
         statusText   = g_data.statusText;
         errorText    = g_data.errorText;
         cursorBlink  = g_data.cursorBlink;
+        renderGeneration = g_data.subtitleGeneration;
+        renderingSubtitle = currentState == UiState::SUBTITLE && !subtitle.empty();
     }
-
+    if (!GameIsForeground()) { currentState = UiState::HIDDEN; renderingSubtitle = false; }
     if (currentState == UiState::HIDDEN) goto finish;
 
     // -- Input bar (typing/ready states) --
@@ -841,6 +941,12 @@ void RenderOverlay(HWND hwnd, int w, int h, POINT ptDst) {
         });
     }
 
+    if (currentState == UiState::SUBTITLE && !statusText.empty()) {
+        curY -= 68.f;
+        boxes.push_back({Gdiplus::RectF(panelX, curY, panelW, 64.f),
+            Gdiplus::Color(200, 20, 20, 50), Gdiplus::Color(150, 255, 200, 80),
+            statusText, Gdiplus::Color(255, 255, 220, 100), 12.f, 1});
+    }
     // -- Error bar --
     if (currentState == UiState::ERROR_SHOW) {
         float barH = 48.f;
@@ -884,9 +990,7 @@ void RenderOverlay(HWND hwnd, int w, int h, POINT ptDst) {
     if (currentState == UiState::PROMPT) {
         float barH = 48.f;
         curY -= barH + 12.f;
-        const std::wstring prompt = g_gameLayoutSupported.load()
-            ? L"\u25B6  Press F6 or Enter to talk to " + npcName
-            : L"\u25B6  Press F6 or Enter to chat (NPC proximity unavailable for this game build)";
+        const std::wstring prompt = L"\u25B6  Interact with " + npcName + L"  [F6 / Enter]";
         boxes.push_back({
             Gdiplus::RectF(panelX, curY, panelW, barH),
             Gdiplus::Color(210, 10, 10, 35),
@@ -947,38 +1051,15 @@ void RenderOverlay(HWND hwnd, int w, int h, POINT ptDst) {
     }
 
 finish:
-    // A top-down DIB preserves alpha for UpdateLayeredWindow. Premultiply its
-    // color channels because ULW_ALPHA requires premultiplied BGRA pixels.
-    HDC screenDC = GetDC(nullptr);
-    HDC memDC = CreateCompatibleDC(screenDC);
-    BITMAPINFO bmi{};
-    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    bmi.bmiHeader.biWidth = w;
-    bmi.bmiHeader.biHeight = -h;
-    bmi.bmiHeader.biPlanes = 1;
-    bmi.bmiHeader.biBitCount = 32;
-    bmi.bmiHeader.biCompression = BI_RGB;
-    void* dibPixels = nullptr;
-    HBITMAP hBmp = CreateDIBSection(screenDC, &bmi, DIB_RGB_COLORS, &dibPixels, nullptr, 0);
-    if (!screenDC || !memDC || !hBmp || !dibPixels) {
-        if (hBmp) DeleteObject(hBmp);
-        if (memDC) DeleteDC(memDC);
-        if (screenDC) ReleaseDC(nullptr, screenDC);
-        return;
-    }
-    HBITMAP old = static_cast<HBITMAP>(SelectObject(memDC, hBmp));
-    ZeroMemory(dibPixels, static_cast<size_t>(w) * h * 4);
+    std::vector<BYTE> pixels(static_cast<size_t>(w) * h * 4);
 
     Gdiplus::Rect lockRect(0, 0, w, h);
     Gdiplus::BitmapData bitmapData{};
     if (bitmap.LockBits(&lockRect, Gdiplus::ImageLockModeRead, PixelFormat32bppARGB, &bitmapData) == Gdiplus::Ok) {
-        BYTE* destination = static_cast<BYTE*>(dibPixels);
+        BYTE* destination = pixels.data();
         const BYTE* source = static_cast<const BYTE*>(bitmapData.Scan0);
-        const int sourceStride = std::abs(bitmapData.Stride);
         for (int y = 0; y < h; ++y) {
-            const BYTE* sourceRow = bitmapData.Stride >= 0
-                ? source + static_cast<size_t>(y) * sourceStride
-                : source + static_cast<size_t>(h - 1 - y) * sourceStride;
+            const BYTE* sourceRow = source + static_cast<ptrdiff_t>(y) * bitmapData.Stride;
             BYTE* destinationRow = destination + static_cast<size_t>(y) * w * 4;
             for (int x = 0; x < w; ++x) {
                 const BYTE* src = sourceRow + static_cast<size_t>(x) * 4;
@@ -991,21 +1072,15 @@ finish:
             }
         }
         bitmap.UnlockBits(&bitmapData);
+    } else return;
+
+    const uint64_t frame = NpcD3D::SubmitFrame(w, h, pixels.data(), w * 4);
+    if (renderingSubtitle && frame != 0) {
+        std::lock_guard<std::mutex> lock(g_data.mtx);
+        if (g_data.state == UiState::SUBTITLE && g_data.subtitleGeneration == renderGeneration &&
+            renderGeneration == g_conversationGeneration.load() && g_data.subtitleFrame == 0)
+            g_data.subtitleFrame = frame;
     }
-
-    POINT ptSrc = {0, 0};
-    SIZE sz = {w, h};
-    BLENDFUNCTION blend{};
-    blend.BlendOp = AC_SRC_OVER;
-    blend.SourceConstantAlpha = 255;
-    blend.AlphaFormat = AC_SRC_ALPHA;
-
-    UpdateLayeredWindow(hwnd, screenDC, &ptDst, &sz, memDC, &ptSrc, 0, &blend, ULW_ALPHA);
-
-    SelectObject(memDC, old);
-    DeleteObject(hBmp);
-    DeleteDC(memDC);
-    ReleaseDC(nullptr, screenDC);
 }
 
 // ============================================================================
@@ -1014,67 +1089,93 @@ finish:
 
 LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
+    // MCI aliases belong to their opening thread, not to each HTTP turn worker.
+    case AUDIO_STOP_MESSAGE:
+        mciSendStringW(L"close npc_reply", nullptr, 0, nullptr);
+        return 0;
+    case AUDIO_PLAY_MESSAGE: {
+        auto& request = *reinterpret_cast<AudioPlayRequest*>(lParam);
+        request.played = PlayAudioOnOverlay(*request.path, request.generation, request.duration);
+        return 0;
+    }
+    case AUDIO_WRITE_MESSAGE: {
+        auto& request = *reinterpret_cast<AudioWriteRequest*>(lParam);
+        if (g_running.load() && request.generation == g_conversationGeneration.load())
+            request.written = NpcAudio::ReplaceReplyFile(g_tempDir + L"\\npc_reply.mp3", *request.bytes);
+        return 0;
+    }
     case WM_TIMER:
         if (wParam == TIMER_ID) {
             if (!g_gameWnd || !IsWindow(g_gameWnd)) {
                 g_gameWnd = FindGameWindow();
+                if (g_gameWnd) WriteLog(L"Visible game window located.");
             }
-            if (!g_gameWnd || !IsWindow(g_gameWnd) || IsIconic(g_gameWnd) || !GameIsForeground()) {
-                ShowWindow(hwnd, SW_HIDE);
-                return 0;
+            static bool renderingLogged = false;
+            if (!renderingLogged && NpcD3D::IsRendering()) {
+                renderingLogged = true;
+                WriteLog(L"Direct3D game frames confirmed; in-frame overlay rendering active.");
             }
-            ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-
+            if (!g_gameWnd || !IsWindow(g_gameWnd)) return 0;
             RECT client{};
-            POINT ptDst{0, 0};
-            if (!GetClientRect(g_gameWnd, &client) || !ClientToScreen(g_gameWnd, &ptDst)) return 0;
-            const int ow = client.right - client.left;
-            const int oh = client.bottom - client.top;
+            if (!GetClientRect(g_gameWnd, &client)) return 0;
+            int ow = client.right - client.left, oh = client.bottom - client.top;
+            NpcD3D::GetViewportSize(ow, oh);
             if (ow < 100 || oh < 100) return 0;
-
-            // --- Proximity check ---
+            const bool focused = !IsIconic(g_gameWnd) && GameIsForeground();
             static DWORD lastProximityCheck = 0;
-            static bool cachedNearPed = false;
             const DWORD now = GetTickCount();
-            if (g_gameLayoutSupported.load() && (lastProximityCheck == 0 || now - lastProximityCheck >= 200)) {
+            bool leaveConversation = false;
+            if (lastProximityCheck == 0 || now - lastProximityCheck >= 100 || !focused) {
                 lastProximityCheck = now;
-                float px = 0.f, py = 0.f, pz = 0.f;
-                bool foundPed = false;
-                if (ReadPlayerPosition(px, py, pz) && FindNearbyPed(px, py, pz, foundPed)) {
-                    cachedNearPed = foundPed;
-                } else {
-                    cachedNearPed = false;
-                    g_gameLayoutSupported.store(false);
-                    WriteLog(L"GTA memory layout read failed; switched to manual F6 chat mode.");
+                NpcInteraction::Ped selected, nearest;
+                bool active = false, selectedInRange = false;
+                {
+                    std::lock_guard<std::mutex> lock(g_data.mtx);
+                    selected = g_data.selectedPed;
+                    active = NpcInteraction::IsConversation(static_cast<unsigned>(g_data.state));
                 }
-            } else if (!g_gameLayoutSupported.load()) cachedNearPed = false;
-            const bool nearPedAvailable = cachedNearPed;
+                const bool memorySceneAvailable = FindNearbyPed(nearest, selected, selectedInRange);
+                static bool previousSceneAvailable = false;
+                if (previousSceneAvailable && !memorySceneAvailable) g_sceneEpoch.fetch_add(1);
+                previousSceneAvailable = memorySceneAvailable;
+                const bool sceneAvailable = focused && memorySceneAvailable;
+                {
+                    std::lock_guard<std::mutex> lock(g_data.mtx);
+                    g_data.nearbyPed = sceneAvailable ? nearest : NpcInteraction::Ped{};
+                    g_data.nearNpc = g_data.nearbyPed.address != 0;
+                    leaveConversation = active && (!sceneAvailable || !selectedInRange);
+                }
+            }
+            if (leaveConversation) ExitConversation();
 
             // --- State machine ---
             {
                 std::lock_guard lk(g_data.mtx);
-                g_data.nearNpc = nearPedAvailable;
-                g_data.cursorBlink++;
+                g_data.cursorBlink = static_cast<int>(now / 500);
 
                 switch (g_data.state) {
                 case UiState::HIDDEN:
-                    if (nearPedAvailable || !g_gameLayoutSupported.load()) g_data.state = UiState::PROMPT;
+                    if (focused && g_data.nearNpc && !g_cancelPending.load()) g_data.state = UiState::PROMPT;
                     break;
 
                 case UiState::PROMPT:
-                    if (!nearPedAvailable && g_gameLayoutSupported.load()) {
+                    if (!g_data.nearNpc || !focused) {
                         g_data.state = UiState::HIDDEN;
                     }
                     break;
 
                 case UiState::SUBTITLE:
-                    if (GetTickCount() > g_data.subtitleEnd) {
+                    if (NpcInteraction::DeadlineReached(now, g_data.subtitleEnd) &&
+                        (!g_data.audioPlaying || !AudioIsPlaying())) {
+                        StopAudio();
                         g_data.state = UiState::READY;
+                        g_data.audioPlaying = false;
+                        g_data.subtitle.clear();
                     }
                     break;
 
                 case UiState::ERROR_SHOW:
-                    if (GetTickCount() > g_data.subtitleEnd) {
+                    if (NpcInteraction::DeadlineReached(now, g_data.subtitleEnd)) {
                         g_data.state = UiState::READY;
                         g_data.errorText.clear();
                     }
@@ -1086,7 +1187,7 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             }
 
             // --- Render ---
-            RenderOverlay(hwnd, ow, oh, ptDst);
+            RenderOverlay(ow, oh);
         }
         return 0;
 
@@ -1103,14 +1204,16 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
 // ============================================================================
 
 DWORD WINAPI OverlayThreadProc(LPVOID) {
-    // Initialize GDI+
+    if (!NpcD3D::Initialize()) WriteLog(L"Direct3D hook not yet installed; rendering must be confirmed before interaction.");
     Gdiplus::GdiplusStartupInput gdipInput;
-    Gdiplus::GdiplusStartup(&g_gdipToken, &gdipInput, nullptr);
-
-    g_gameLayoutSupported.store(IsSupportedGta10Us());
+    if (Gdiplus::GdiplusStartup(&g_gdipToken, &gdipInput, nullptr) != Gdiplus::Ok) {
+        WriteLog(L"GDI+ text renderer initialization failed.");
+        return 1;
+    }
+    g_gameLayoutSupported.store(DetectGameLayout());
     WriteLog(g_gameLayoutSupported.load()
-        ? L"GTA SA 1.0 US memory layout recognized; nearby pedestrian prompts enabled."
-        : L"Unsupported GTA executable; nearby pedestrian detection disabled and manual F6 chat enabled.");
+        ? L"Game code fingerprints recognized; nearest pedestrian interaction enabled."
+        : L"Unsupported game code fingerprints; proximity interaction safely disabled.");
 
     // Prep temp directory
     wchar_t tmpBuf[MAX_PATH]{};
@@ -1119,18 +1222,7 @@ DWORD WINAPI OverlayThreadProc(LPVOID) {
     g_tempDir += L"MalayalamNpcDemo";
     EnsureDir(g_tempDir);
 
-    // Load bridge token (retry a few times in case server is starting)
-    for (int i = 0; i < 10 && g_running.load(); i++) {
-        if (LoadBridgeToken()) break;
-        Sleep(2000);
-    }
-
-    // Check backend connectivity
-    {
-        HttpResponse resp = HttpRequest(L"GET", L"/api/status");
-        std::lock_guard lk(g_data.mtx);
-        g_data.backendOk = resp.ok();
-    }
+    LoadBridgeToken();
 
     // Register window class
     WNDCLASSEXW wc{};
@@ -1145,14 +1237,12 @@ DWORD WINAPI OverlayThreadProc(LPVOID) {
         return 1;
     }
 
-    // Create layered, transparent, topmost window
-    int sw = GetSystemMetrics(SM_CXSCREEN);
-    int sh = GetSystemMetrics(SM_CYSCREEN);
+    // This invisible window owns the timer and keyboard-hook message queue only.
     g_overlay = CreateWindowExW(
-        WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+        WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
         OVERLAY_CLASS, L"MalayalamNpcOverlay",
         WS_POPUP,
-        0, 0, sw, sh,
+        0, 0, 1, 1,
         nullptr, nullptr, wc.hInstance, nullptr);
 
     if (!g_overlay) {
@@ -1165,14 +1255,13 @@ DWORD WINAPI OverlayThreadProc(LPVOID) {
     g_heartbeatThread = CreateThread(nullptr, 0, BridgeHeartbeatProc, nullptr, 0, nullptr);
     if (!g_heartbeatThread) WriteLog(L"Could not start the bridge heartbeat thread.");
 
-    ShowWindow(g_overlay, SW_SHOWNOACTIVATE);
-
-    // Install keyboard hook
-    g_kbHook = SetWindowsHookExW(WH_KEYBOARD_LL, LowLevelKeyboardProc, GetModuleHandleW(nullptr), 0);
-
-    // Start timer
+    HMODULE pluginModule = nullptr;
+    GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+        reinterpret_cast<LPCWSTR>(&LowLevelKeyboardProc), &pluginModule);
+    g_kbHook = SetWindowsHookExW(WH_KEYBOARD_LL, LowLevelKeyboardProc, pluginModule, 0);
+    if (!g_kbHook) WriteLog(L"Keyboard hook failed; interaction keys are unavailable.");
     SetTimer(g_overlay, TIMER_ID, TIMER_MS, nullptr);
-    WriteLog(L"Overlay initialized — F6/Enter starts a chat when the game window is focused.");
+    WriteLog(L"Interaction timer ready; waiting for game-rendered frames and a nearby pedestrian.");
 
     // Message loop
     MSG msg;
@@ -1189,6 +1278,7 @@ DWORD WINAPI OverlayThreadProc(LPVOID) {
         g_heartbeatThread = nullptr;
     }
     if (g_kbHook) { UnhookWindowsHookEx(g_kbHook); g_kbHook = nullptr; }
+    NpcD3D::Shutdown();
     StopAudio();
     DeleteFileW((g_tempDir + L"\\npc_reply.mp3").c_str());
     if (g_overlay && IsWindow(g_overlay)) DestroyWindow(g_overlay);

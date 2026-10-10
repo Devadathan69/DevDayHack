@@ -5,7 +5,7 @@ Complete this file during the hackathon and use it to prepare your submission th
 ## Project
 
 - **Project name:** Malayalam NPC Demo
-- **Short description:** A profile-driven local Malayalam NPC companion with OpenAI dialogue, ElevenLabs speech, and private SQLite conversation memory. A typed GTA bridge is implemented, but in-game behavior is unverified.
+- **Short description:** A local Malayalam NPC companion with OpenAI dialogue, ElevenLabs speech, SQLite memory, and a fullscreen-compatible GTA interaction popup. Nearby typed interaction and two consecutive spoken replies with matching subtitles were confirmed by the user in the installed build; broader compatibility and in-game microphone input remain unverified/unimplemented.
 - **Code repository URL:** TODO
 - **Final submitted implementation commit SHA:** TODO
 - **Working demo URL or local demo steps:** With provider keys in local `.env`, run `npm start`, open the printed local URL, select Manu, and use push-to-talk. This demo requires OpenAI and ElevenLabs provider access.
