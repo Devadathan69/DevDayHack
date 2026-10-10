@@ -1,12 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { rmSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import { SqliteMemoryStore } from "../src/memory/sqlite-memory-store.js";
 
 function temporaryStore(t) {
-  const directory = mkdtempSync(join(tmpdir(), "malayalam-npc-test-"));
+  const directory = fileURLToPath(new URL(`./.memory-fixture-${randomUUID()}/`, import.meta.url));
   let store = new SqliteMemoryStore(directory);
   t.after(() => {
     store.close();

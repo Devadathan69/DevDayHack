@@ -21,9 +21,11 @@ export class NpcController {
     const speechRecognitionMs = Math.round(performance.now() - sttStartedAt);
     assertNotAborted(signal);
     await this.dependencies.memory.recordAcceptedInput(turn, transcript.text);
+    assertNotAborted(signal);
 
     this.#emit(turn, "THINKING", onState);
     const history = await this.dependencies.memory.loadContext(turn);
+    assertNotAborted(signal);
     if (history.generation !== turn.memoryGeneration) {
       throw new Error("Conversation memory changed during this turn. Please try again.");
     }
@@ -36,6 +38,7 @@ export class NpcController {
     const dialogueMs = Math.round(performance.now() - dialogueStartedAt);
     assertNotAborted(signal);
     await this.dependencies.memory.recordGeneratedReply(turn, reply);
+    assertNotAborted(signal);
 
     this.#emit(turn, "SYNTHESIZING", onState);
     let audio = null;
@@ -59,6 +62,7 @@ export class NpcController {
       speechSynthesisMs = Math.round(performance.now() - synthesisStartedAt);
     }
 
+    assertNotAborted(signal);
     this.#emit(turn, "AWAITING_DELIVERY", onState);
     return { turnContext: turn, transcript, reply, audio, speechError,
       timings: { speechRecognitionMs, dialogueMs, speechSynthesisMs } };

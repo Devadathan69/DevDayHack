@@ -3,10 +3,52 @@ import { assertNotAborted } from "../domain.js";
 const OPENAI_URL = "https://api.openai.com/v1/responses";
 const ELEVENLABS_URL = "https://api.elevenlabs.io/v1";
 
+const elevenLabsErrorActions = new Map([
+  ["invalid_api_key", "Check ELEVENLABS_API_KEY in the local environment and restart the server. Use an ElevenLabs API key, not an OpenAI key."],
+  ["missing_api_key", "Set ELEVENLABS_API_KEY in the local environment and restart the server."],
+  ["missing_permissions", "Grant this ElevenLabs API key permission for the requested operation in the provider dashboard."],
+  ["detected_unusual_activity", "ElevenLabs has restricted this account for unusual activity. Review the account or contact ElevenLabs support; changing the model or retrying cannot remove an account restriction."],
+  ["quota_exceeded", "The ElevenLabs credit quota is exhausted. Check the account credit balance and billing before retrying."],
+  ["insufficient_credits", "The ElevenLabs account has insufficient credits. Check the account credit balance and billing before retrying."],
+  ["voice_not_found", "Check ELEVENLABS_VOICE_ID and whether this account can access the configured voice."],
+  ["model_not_found", "Check ELEVENLABS_TTS_MODEL against the account's available Malayalam-capable speech models."],
+  ["invalid_model_id", "Check ELEVENLABS_TTS_MODEL against the account's available Malayalam-capable speech models."],
+]);
+
+async function readElevenLabsErrorCode(response) {
+  const reader = response.body?.getReader();
+  if (!reader) return null;
+  const chunks = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > 16 * 1024) return null;
+      chunks.push(Buffer.from(value));
+    }
+    const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    const code = body?.detail?.status;
+    return typeof code === "string" && elevenLabsErrorActions.has(code) ? code : null;
+  } catch {
+    return null;
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+}
+
 async function readError(response, service) {
-  const requestId = response.headers.get("x-request-id") ?? response.headers.get("request-id");
-  await response.body?.cancel();
-  throw new Error(`${service} request failed (HTTP ${response.status}${requestId ? `, request ${requestId}` : ""}). Check the local provider setup and try again.`);
+  const rawRequestId = response.headers.get("x-request-id") ?? response.headers.get("request-id");
+  const requestId = /^[a-z0-9_-]{8,128}$/iu.test(rawRequestId ?? "") ? rawRequestId : null;
+  const code = service.startsWith("ElevenLabs") ? await readElevenLabsErrorCode(response) : null;
+  if (!service.startsWith("ElevenLabs")) await response.body?.cancel();
+  const fallback = service.startsWith("ElevenLabs") && response.status === 401
+    ? "ElevenLabs denied authentication or account access. Check ELEVENLABS_API_KEY and key permissions in the provider dashboard; review account restrictions if these are correct."
+    : "Check the local provider setup and try again.";
+  const action = code ? elevenLabsErrorActions.get(code) : fallback;
+  throw new Error(`${service} request failed (HTTP ${response.status}${requestId ? `, request ${requestId}` : ""}${code ? `, reason ${code}` : ""}). ${action}`);
 }
 
 export function createLiveProviders(config) {
@@ -25,7 +67,7 @@ export function createLiveProviders(config) {
         const form = new FormData();
         form.set("model_id", "scribe_v2");
         const extension = ({ "audio/webm": "webm", "audio/ogg": "ogg", "audio/wav": "wav",
-          "audio/mp4": "m4a", "audio/mpeg": "mp3" })[input.mimeType] ?? "webm";
+          "audio/mp4": "m4a", "audio/mpeg": "mp3", "audio/mp3": "mp3" })[input.mimeType] ?? "webm";
         form.set("file", new Blob([input.bytes], { type: input.mimeType }), `utterance.${extension}`);
         const response = await fetch(`${ELEVENLABS_URL}/speech-to-text`, {
           method: "POST", headers: { "xi-api-key": config.elevenLabsApiKey }, body: form, signal,
@@ -78,6 +120,10 @@ export function createLiveProviders(config) {
           signal,
         });
         if (!response.ok) return readError(response, "ElevenLabs speech synthesis");
+        if (!/^audio\/(mpeg|mp3)(?:;|$)/iu.test(response.headers.get("content-type") ?? "")) {
+          await response.body?.cancel();
+          throw new Error("ElevenLabs returned a response that is not MP3 audio.");
+        }
         const bytes = Buffer.from(await response.arrayBuffer());
         if (bytes.length === 0 || bytes.length > 8 * 1024 * 1024) throw new Error("ElevenLabs returned empty or oversized audio.");
         return { kind: "elevenlabs", mimeType: "audio/mpeg", bytes, playable: true };

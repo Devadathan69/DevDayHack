@@ -4,6 +4,14 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-11T01:19:48+05:30 — Repair native bridge lifecycle and speech failure reporting
+
+- Changed: Backend conversation routes now have testable server construction, idempotent scoped selection, isolated pedestrian/scene memory, cancellation/deselection, authenticated audio delivery, and strict matching delivery acknowledgements. Provider requests respect cancellation; ElevenLabs failures expose only allowlisted actionable reason codes rather than arbitrary provider messages.
+- Why: In-game interactions must not apply an old pedestrian's reply/audio to a new selection or silently claim speech succeeded when the provider rejects it.
+- Affected: `backend/src/server.js`, `backend/src/session-manager.js`, `backend/src/npc-controller.js`, `backend/src/providers/live-providers.js`, and their provider/memory/new HTTP route regression tests.
+- Validation: `node --test backend\test\live-providers.test.js backend\test\server.test.js backend\test\sqlite-memory-store.test.js` passed 39 tests with stub providers. `npm run check` and `git diff --check` passed. The live backend responded HTTP 200 after restart. Two user-authorized live turns returned Malayalam dialogue; ElevenLabs TTS failed with HTTP 401. An intentionally unrendered false/false delivery was rejected with HTTP 400; selection/audio were then cleared by deselect, so no game delivery was claimed.
+- Limitations: The user chose to correct the ElevenLabs key/account locally; successful live speech is still unverified. Native fullscreen/nearby interaction changes are a separate in-progress milestone; these backend checks are not proof of a working GTA demo. Human review pending.
+
 ## 2026-10-11T00:44:17+05:30 — Attempt in-game overlay verification
 
 - Changed: Updated README, plan, integration status, changelog, and AI usage notes with the first game-launch result. Stopped a stale project backend process that was still running the removed `--mock` mode.
