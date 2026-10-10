@@ -4,11 +4,11 @@ Use Codex during the hackathon and briefly document its actual contribution here
 
 ## Event build log
 
-No participant AI usage has been recorded yet. Replace the placeholder row as you build. Mark human review as pending until someone has reviewed the contribution.
+Record actual assistance after each meaningful task. Mark human review as pending until someone has reviewed the contribution.
 
 | Date and time with timezone | Tool / model, if known | Task | Assistance and affected files | Human review / corrections | Validation and result |
 | --- | --- | --- | --- | --- | --- |
-| TODO | Codex | TODO | TODO | Pending | TODO |
+| 2026-10-10 22:08 IST | Codex | Start Phase 1 backend | Implemented profile validation, reusable NPC controller/registry, turn/session cancellation, mock providers, in-memory scoped memory, CLI demo, and project docs. | Pending human review. Changed the CLI to iterate input lines after the first piped run showed an unsettled prompt at EOF. | `npm run check`, two-turn mock Malayalam recall walkthrough, and `git diff --check` passed. No automated tests were added. |
 
 ## Template preparation
 

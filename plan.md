@@ -2,7 +2,7 @@
 
 **Delivery strategy:** integrate one NPC end to end, validate the demo, and only then enable additional NPC instances. Build reusable boundaries from the beginning without implementing city-scale behavior prematurely.
 
-**Status:** architecture and implementation specification; no compatibility, provider access, or completed implementation is implied by this document.
+**Status:** Phase 1 mock backend scaffold is implemented in this repository. It is not yet verified against GTA, live providers, microphone/audio devices, or persistent storage.
 
 ## 1. Goal and confirmed requirements
 
@@ -541,10 +541,13 @@ Deliverables: compatibility record, harmless native smoke-test log, and a descri
 
 ### Phase 1: reusable backend, no game dependency
 
-- [ ] Implement provider interfaces and mock adapters.
-- [ ] Implement `NpcController`, registry, and session state machine.
-- [ ] Register exactly one profile through the reusable factory.
-- [ ] Implement validated, short Malayalam responses and error/cancellation handling.
+- [x] Implement provider interfaces and mock adapters.
+- [x] Implement `NpcController`, registry, and session state machine.
+- [x] Register exactly one profile through the reusable factory.
+- [x] Implement validated, short Malayalam responses and error/cancellation handling.
+- [ ] Add deterministic unit tests.
+
+**Repository progress (10 October 2026):** A dependency-free Node.js CLI drives a mock turn through the profile registry/controller and in-memory memory store. JavaScript syntax checking and a two-turn Malayalam recall walkthrough have run. Phase 1 remains in progress until deterministic unit tests are added; the CLI does not capture or play audio.
 
 **Exit:** the single controller completes mock turns with no GTA/provider dependencies. A synthetic second ID can be used in tests, but a second in-game NPC is not implemented here.
 

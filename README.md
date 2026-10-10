@@ -1,56 +1,45 @@
-# DevDay Exchange Community Hackathon: Kochi
+# Malayalam NPC Demo
 
-A repository template for participants at the 10–11 October 2026 hackathon. It contains event rules and documentation scaffolding; build your project from scratch at the event.
+A hackathon prototype for a reusable Malayalam-speaking GTA San Andreas NPC. The first implementation milestone is a small mock-only backend demo; live speech, persistent storage, and game integration are later steps in [plan.md](plan.md).
 
-**[Event and registration on Luma](https://luma.com/z10nz8gp)** · **[Event rules](RULES.md)** · **[Agent instructions](AGENTS.md)**
+## Event
 
-## Event details
+DevDay Exchange Community Hackathon: Kochi, 10–11 October 2026 at JAIN University, Kochi. [Event and registration](https://luma.com/z10nz8gp) · [Rules](RULES.md).
 
-| Detail | Information |
-| --- | --- |
-| Venue | JAIN University, Kochi |
-| Location | [Open the venue map](https://maps.app.goo.gl/Eme7gR7NDXSNRANu5) |
-| Rooms | 2008 and 2009 |
-| Check-in | 10 October 2026, 6:00 PM IST |
-| Kick-off | 10 October 2026, 6:30 PM IST |
-| Wrap-up | 11 October 2026, by 10:00 AM IST |
-| Participation | Solo or a team of up to 4 participants |
-| Theme | Open — build anything you like |
+## Current implementation
 
-Keep your approved Luma QR code ready for entry, and bring your laptop and charger. Eligible checked-in participants will receive Codex credits and OpenAI API credits.
+- One original character profile (`Manu`) is validated and instantiated through a reusable NPC registry/controller.
+- The CLI accepts typed Malayalam as mock speech input, runs a mock dialogue response, and acknowledges subtitle delivery.
+- The in-memory store scopes recent delivered dialogue by world, player, and NPC. The mock can recall the previous delivered player message when asked.
+- Turn IDs, cancellation, scene invalidation, reset generations, response validation, and single-turn ownership are represented in the backend.
+- Mock providers can be configured for delays, cancellation, malformed results, and stage failures for future development checks.
 
-## Use this template
+The CLI does **not** record or play audio. The response is explicitly labeled as a mock; memory lasts only until the process exits. There is no live OpenAI or ElevenLabs integration, SQLite persistence, companion web UI, or GTA plugin yet. The installed game executable and mod-loader compatibility have not been verified.
 
-1. Select **Use this template → Create a new repository** on GitHub. Create your own project repository and clone it.
-2. Read [RULES.md](RULES.md) and [AGENTS.md](AGENTS.md) before building. Begin project implementation at the event.
-3. Fill in the project overview below as you build. Use any suitable language or framework, keeping the implementation simple.
-4. Record meaningful changes in [CHANGELOG.md](CHANGELOG.md) and your Codex usage in [AI_USAGE.md](AI_USAGE.md). Commit after completed milestones; aim for a meaningful checkpoint about every 30 minutes.
-5. Complete [SUBMISSION.md](SUBMISSION.md) with your code repository, short project description, and working demo. Follow submission instructions announced by the organizers.
+## Run the mock demo
 
-This template has no application code or required technology stack. The documentation and commit cadence are repository workflow guidance; the event participation rules are in [RULES.md](RULES.md).
+Prerequisite: Node.js 22.18 or newer. There are no third-party package dependencies, so `npm install` is not required.
 
-## Project overview — complete during the event
+```sh
+npm run demo
+```
 
-- **Project name:** TODO
-- **Short description:** TODO — what it does, who it helps, and why it matters.
-- **Team:** TODO — participant names and GitHub handles; maximum 4 members.
-- **Working demo:** TODO — link or local demo instructions.
-- **Technology stack:** TODO
+Type Malayalam into the prompt. Ask `മുമ്പ് ഞാൻ എന്താണ് പറഞ്ഞത്?` after a turn to exercise the mock recall path. Use `/reset` to clear this process's NPC memory and `/quit` to exit.
 
-### Run the project
+Run a JavaScript syntax check with:
 
-Replace these placeholders with commands that actually work for your project:
+```sh
+npm run check
+```
 
-1. Prerequisites and versions: TODO
-2. Dependency installation: TODO
-3. Environment setup: TODO — list required variable names and provide a sanitized `.env.example` if needed.
-4. Start the project: TODO
-5. Run checks or tests: TODO
+This syntax check is not a test suite and does not verify live providers, storage restart behavior, microphone/audio devices, or GTA integration.
 
-### Current status
+## Project details
 
-- Working features: TODO
-- Known limitations: TODO
-- Libraries, APIs, and public datasets used: TODO — include source links and applicable attribution.
+- **Project name:** Malayalam NPC Demo
+- **Short description:** A profile-driven backend foundation for talking to and remembering a Malayalam-speaking game NPC.
+- **Technology:** Node.js ES modules and built-in libraries; no third-party packages in this milestone.
+- **Working demo:** Run the mock CLI as described above.
+- **Libraries, APIs, and datasets:** Node.js built-in modules only so far. No external API or dataset is used by the mock demo.
 
-See [AI_USAGE.md](AI_USAGE.md) for AI assistance and [CHANGELOG.md](CHANGELOG.md) for the development record.
+See [plan.md](plan.md) for the architecture and milestone gates, [CHANGELOG.md](CHANGELOG.md) for implementation history, and [AI_USAGE.md](AI_USAGE.md) for assistance records. [SUBMISSION.md](SUBMISSION.md) is still in progress; participant and repository details must be completed before submission.

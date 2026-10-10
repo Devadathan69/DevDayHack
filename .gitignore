@@ -21,4 +21,14 @@ __pycache__/
 Thumbs.db
 *.log
 
+# Local demo data and microphone/provider artifacts.
+data/
+*.db
+*.sqlite
+*.sqlite3
+*.wav
+*.mp3
+*.webm
+*.ogg
+
 # Add entries appropriate to your chosen language or framework.

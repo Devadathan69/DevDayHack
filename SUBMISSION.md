@@ -4,12 +4,12 @@ Complete this file during the hackathon and use it to prepare your submission th
 
 ## Project
 
-- **Project name:** TODO
-- **Short description:** TODO — describe the problem, what you built, and who benefits.
+- **Project name:** Malayalam NPC Demo
+- **Short description:** A profile-driven backend foundation for a Malayalam-speaking game NPC with scoped conversation memory. Current demo uses labeled mock providers.
 - **Code repository URL:** TODO
 - **Final submitted implementation commit SHA:** TODO
-- **Working demo URL or local demo steps:** TODO
-- **Demo access requirements:** TODO — explain any prerequisites without including private credentials.
+- **Working demo URL or local demo steps:** From the repository root, run `npm run demo` with Node.js 22.18 or newer.
+- **Demo access requirements:** Local terminal only; no credentials, microphone, or game installation required for the mock demo.
 
 ## Participants
 
@@ -21,14 +21,14 @@ Participate solo or in a team of up to 4. Remove unused rows.
 
 ## Run and demonstrate
 
-- **Prerequisites and versions:** TODO
-- **Install command:** TODO
-- **Required environment variable names:** TODO — use a sanitized example file if needed.
-- **Start command:** TODO
-- **Demo walkthrough:** TODO — brief steps showing the implemented features.
-- **Checks performed and results:** TODO
-- **Known limitations or incomplete features:** TODO
-- **Libraries, APIs, and public datasets used:** TODO — link sources and record attribution where required.
+- **Prerequisites and versions:** Node.js 22.18 or newer.
+- **Install command:** None; this milestone has no third-party dependencies.
+- **Required environment variable names:** None for the mock demo.
+- **Start command:** `npm run demo`.
+- **Demo walkthrough:** Type a Malayalam utterance, observe the mock transcript/reply, then ask `മുമ്പ് ഞാൻ എന്താണ് പറഞ്ഞത്?`; use `/reset` to clear in-process memory.
+- **Checks performed and results:** `npm run check` passed; manual mock CLI recall walkthrough passed; `git diff --check` passed. No automated tests yet.
+- **Known limitations or incomplete features:** Mock speech and dialogue only; no actual audio, live provider, durable memory, companion UI, or in-game bridge. See [README.md](README.md).
+- **Libraries, APIs, and public datasets used:** Node.js built-ins only; no external API or dataset used in the current demo.
 - **AI usage record:** [AI_USAGE.md](AI_USAGE.md)
 - **Development change log:** [CHANGELOG.md](CHANGELOG.md)
 
