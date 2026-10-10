@@ -1,8 +1,8 @@
 import { createServer } from "node:http";
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { loadConfig } from "./config.js";
 import { NpcRegistry } from "./npc-registry.js";
 import { SessionManager } from "./session-manager.js";
@@ -20,8 +20,11 @@ const registry = new NpcRegistry([profile], { ...providers, memory });
 const manager = new SessionManager({ registry, memory });
 const companionDirectory = fileURLToPath(new URL("../../companion/", import.meta.url));
 const sessionToken = randomBytes(32).toString("hex");
+const bridgeToken = randomBytes(32).toString("hex");
+const bridgeTokenFileContents = `token=${bridgeToken}\nport=${config.port}\n`;
 const audioItems = new Map();
 let liveTurns = 0;
+let lastBridgeSeenAt = 0;
 
 const staticFiles = new Map([
   ["/", ["index.html", "text/html; charset=utf-8"]],
@@ -39,12 +42,33 @@ function getCookie(request) {
   return cookie?.slice("malayalam_session=".length) ?? "";
 }
 
-function isAuthenticated(request) {
+function isBrowserAuthenticated(request) {
   const supplied = Buffer.from(getCookie(request));
   const expected = Buffer.from(sessionToken);
   if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) return false;
   if (request.method !== "GET" && request.headers.origin !== `http://127.0.0.1:${config.port}`) return false;
   return true;
+}
+
+function isBridgeRoute(request, pathname) {
+  if (request.method === "GET" && pathname === "/api/status") return true;
+  if (request.method === "GET" && /^\/api\/audio\/[0-9a-f-]{36}$/iu.test(pathname)) return true;
+  return request.method === "POST" && ["/api/select", "/api/text-turn", "/api/delivery", "/api/cancel"].includes(pathname);
+}
+
+function isBridgeAuthenticated(request, pathname) {
+  if (!isBridgeRoute(request, pathname)) return false;
+  const supplied = request.headers["x-bridge-token"];
+  if (typeof supplied !== "string") return false;
+  const suppliedBytes = Buffer.from(supplied);
+  const expectedBytes = Buffer.from(bridgeToken);
+  if (suppliedBytes.length !== expectedBytes.length || !timingSafeEqual(suppliedBytes, expectedBytes)) return false;
+  lastBridgeSeenAt = Date.now();
+  return true;
+}
+
+function isAuthenticated(request, pathname) {
+  return isBrowserAuthenticated(request) || isBridgeAuthenticated(request, pathname);
 }
 
 function jsonBody(request, maxBytes = 16 * 1024) {
@@ -171,19 +195,22 @@ const server = createServer(async (request, response) => {
       sendJson(response, 404, { error: "Not found." });
       return;
     }
-    if (!isAuthenticated(request)) {
+    if (!isAuthenticated(request, url.pathname)) {
       sendJson(response, 403, { error: "Open the local companion page first, then retry." });
       return;
     }
 
     if (request.method === "GET" && url.pathname === "/api/status") {
+      const gameConnected = Date.now() - lastBridgeSeenAt < 15_000;
       sendJson(response, 200, {
         mode: config.mode,
         state: manager.state,
         selected: manager.hasSelection,
         npc: { id: profile.id, name: profile.displayName },
-        gameConnected: false,
-        gameMessage: "Game bridge is not connected. This companion runs standalone until a verified GTA integration is available.",
+        gameConnected,
+        gameMessage: gameConnected
+          ? "The local ASI bridge is authenticated and responding."
+          : "The local ASI bridge has not connected.",
         liveTurnsRemaining: config.mode === "live" ? Math.max(0, config.liveTurnLimit - liveTurns) : null,
         audioLimitSeconds: config.maxAudioSeconds,
       });
@@ -210,9 +237,13 @@ const server = createServer(async (request, response) => {
       return;
     }
     if (request.method === "POST" && url.pathname === "/api/select") {
+      const body = request.headers["x-bridge-token"] ? await jsonBody(request) : {};
       if (manager.state === "IDLE") {
         manager.selectNpc({ npcId: profile.id, worldId: config.worldId, playerId: config.playerId,
-          gameSessionId: `companion-${randomUUID()}`, sceneGeneration: 0 });
+          gameSessionId: typeof body.gameSessionId === "string" && body.gameSessionId.length <= 128
+            ? body.gameSessionId : `companion-${randomUUID()}`,
+          sceneGeneration: Number.isSafeInteger(body.sceneGeneration) && body.sceneGeneration >= 0
+            ? body.sceneGeneration : 0 });
       }
       sendJson(response, 200, { state: manager.state, npc: profile.displayName });
       return;
@@ -270,20 +301,39 @@ const server = createServer(async (request, response) => {
 });
 
 server.on("clientError", (_error, socket) => socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n"));
-server.listen(config.port, config.host, () => {
+server.listen(config.port, config.host, async () => {
+  try {
+    await mkdir(dirname(config.bridgeTokenPath), { recursive: true });
+    await writeFile(config.bridgeTokenPath, bridgeTokenFileContents, { encoding: "utf8", mode: 0o600 });
+  } catch (error) {
+    console.error(`Could not write the local bridge token: ${error instanceof Error ? error.message : "unknown error"}`);
+    server.close(() => process.exit(1));
+    return;
+  }
   console.log(`Malayalam NPC companion: http://${config.host}:${config.port}`);
   console.log(`Mode: ${config.mode}${config.mode === "live" ? ` (${config.openAiModel}, ElevenLabs ${config.elevenLabsTtsModel})` : " (mock providers)"}`);
   console.log(`Memory: ${config.mode === "live" ? resolve(config.dataDirectory, "memory.sqlite") : "in-memory (cleared on exit)"}`);
-  console.log("GTA bridge: disconnected; this build does not bind the conversation to an in-game pedestrian.");
+  console.log(`GTA bridge token: written to the current user's local application data.`);
 });
 
-function shutdown() {
+async function shutdown() {
   manager.cancel("Local server shutting down.");
-  server.close(() => {
+  server.close(async () => {
     memory.close?.();
+    await removeBridgeToken();
     process.exit(0);
   });
   setTimeout(() => process.exit(1), 3_000).unref();
+}
+
+async function removeBridgeToken() {
+  try {
+    if (await readFile(config.bridgeTokenPath, "utf8") === bridgeTokenFileContents) {
+      await unlink(config.bridgeTokenPath);
+    }
+  } catch (error) {
+    if (error?.code !== "ENOENT") console.error("Could not remove the local bridge token file.");
+  }
 }
 process.once("SIGINT", shutdown);
 process.once("SIGTERM", shutdown);

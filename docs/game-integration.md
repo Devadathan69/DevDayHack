@@ -1,91 +1,46 @@
-# Integrate the companion with GTA San Andreas
+# GTA San Andreas integration status
 
-This is the staged Windows integration procedure for the **classic PC** game. The repository now has a local browser companion, live OpenAI/ElevenLabs adapters, and SQLite memory, plus a standalone x86 ASI lifecycle smoke-test plugin in `native/src/bootstrap.cpp`. The plugin can be built with `native/build.ps1`; it only logs initialization/shutdown and does not hook game APIs, inspect entities, send bridge messages, or implement NPC behavior. Its exports passed a load check in an x86 host process. It has not been installed into the game. Live voice behavior has not been verified with a paid provider turn or microphone device.
+## Implemented in the current ASI
 
-The local `.env` was checked on 10 October 2026: OpenAI and ElevenLabs returned HTTP 200 to authentication/account-read requests. The live companion reads keys on the backend only. Its server and page start in live mode without generating text or audio; actual transcription, dialogue generation, and synthesis have not been called during this implementation.
+`native/src/bootstrap.cpp` builds a 32-bit ASI with a GDI+ layered-window overlay; it does not hook D3D9. The overlay supports the F6/Enter prompt, typed input, Malayalam reply subtitles, optional backend audio, and Escape cancellation. The backend uses a random token written to `%LOCALAPPDATA%\MalayalamNpcDemo\bridge-token`; the token is accepted only on the local conversation routes and is never returned to the browser. The server remains bound to `127.0.0.1`.
 
-## 1. Identify the exact game installation
+Automatic pedestrian proximity is limited to the GTA SA 1.0 US executable layouts recognized by Plugin-SDK. It reads the player and pedestrian-pool memory only after checking the executable entry point; it offers the prompt within 3.5 game units of an ambient pedestrian. The in-game adapter currently accepts typed messages; microphone push-to-talk remains in the browser companion. No D3D hook, game modification, or model-driven game command is used.
 
-Do this on the Windows machine that has the game. Do not infer executable compatibility from the label `Build 459558 | Full Version`.
+The source project for the address/version conventions is [Plugin-SDK](https://github.com/DK22Pac/plugin-sdk), including its [GTA executable detector](https://github.com/DK22Pac/plugin-sdk/blob/master/injector/injector.hpp#L2987-L3112), [`CPools::ms_pPedPool`](https://github.com/DK22Pac/plugin-sdk/blob/master/plugin_sa/game_sa/CPools.cpp), and [`CPool` layout](https://github.com/DK22Pac/plugin-sdk/blob/master/plugin_sa/game_sa/CPool.h). The detector lists the supported GTA SA 1.0 US entry points as `0x824570` and `0x82457C`; the ASI checks their preferred-base RVAs before touching game memory.
 
-In PowerShell, set `$exePath` to the installed `gta_sa.exe` path and collect metadata without modifying the game:
+## Installed executable and compatibility
+
+Read-only inspection found a 5,971,456-byte x86 PE named `gta-sa.exe`. Its `FileVersion`, `ProductVersion`, and `OriginalFilename` fields are blank. The PE timestamp is 1 December 2014 and its entry-point RVA is `0x458DB8` (preferred-base address `0x858DB8`). The adjacent `installscript.vdf` contains a `1.00.00001` registry key but refers to `gta_sa.exe`; that clue does not establish the executable version. The user reports this is an official copy. The entry point matches none of Plugin-SDK's listed San Andreas targets, so automatic pedestrian detection is disabled for this executable.
+
+When the ASI is loaded into this unrecognized build, its visible prompt explicitly switches to manual F6/Enter chat and labels proximity as unavailable. The rebuilt project ASI is now in the game root. The root's `dinput8.dll` is Ultimate ASI Loader v9.7.4 x86 (5,418,336 bytes; its SHA-512 matched the sidecar in the official per-file release archive). The game imports `DINPUT8.dll`, `D3D9.dll`, and `XINPUT1_3.dll`; the existing `xinput1_3.dll` reports Microsoft Common Controller API and was left untouched. This confirms the loader file and project ASI are present, but the game has not been launched and overlay/key/audio behavior has not been tested.
+
+## Build and run
+
+Build with the installed Visual Studio x86 C++ tools:
 
 ```powershell
-$exePath = 'C:\Games\GTA San Andreas\gta_sa.exe'
-$exe = Get-Item -LiteralPath $exePath
-$exe | Select-Object FullName, Length
-$exe.VersionInfo | Select-Object FileVersion, ProductVersion, OriginalFilename
-Get-FileHash -Algorithm SHA256 -LiteralPath $exe.FullName
-Get-ChildItem -LiteralPath $exe.DirectoryName -File |
-  Where-Object { $_.Name -match '(?i)^(dinput8|d3d8|d3d9|dsound|winmm|version)\.dll$|\.asi$' } |
-  Select-Object Name, Length
+npm run build:native
 ```
 
-Record the Windows version, installation source, executable metadata/hash, and any existing ASI loader, graphics wrapper, or `.asi` files. Keep paths and hashes in a local compatibility note if you do not want them public. This information is a precondition for choosing an SDK target and loader proxy; it does not by itself prove that a hook is compatible.
+The generated file is `native/build/MalayalamNpcBootstrap.asi`. Start the backend before launching the game:
 
-### Current local preflight record
+```powershell
+npm run start:live
+```
 
-Read-only inspection on 10 October 2026 found a 5,971,456-byte x86 PE named `gta-sa.exe`. Its `FileVersion`, `ProductVersion`, and `OriginalFilename` fields are blank. The PE timestamp is 1 December 2014, and its entry-point RVA is `0x458DB8` (preferred-base address `0x858DB8`). The adjacent `installscript.vdf` has a `1.00.00001` registry key but refers to `gta_sa.exe`, so neither that installer record nor the timestamp proves the executable version; do not rename or patch the executable to make it fit a guide. The user reports that this is an official copy, but the executable version and Plugin-SDK compatibility remain unverified. No root-level `.asi` plugin or `dinput8.dll` was found. An existing `xinput1_3.dll` must not be overwritten.
+The backend writes its bridge token under the current user's local application data. Keep `.env`, the token, database, logs, and temporary audio outside the game folder and repository. `UI_PORT` can change the port; the ASI reads it from the token file. The backend's current mock mode also works for typed in-game replies without paid provider calls.
 
-On 10 October 2026, the PE entry point was compared read-only with the official [Plugin-SDK game-version detector](https://github.com/DK22Pac/plugin-sdk/blob/master/injector/injector.hpp#L2987-L3112). The executable's normalized entry-point address `0x858DB8` does not match the detector's listed San Andreas targets (1.0 US/EU, 1.1 US/EU, or Steam 3.0). Treat this executable as **unidentified/unsupported for this integration**. The nearest numeric entry point is not a valid compatibility match. Do not select a gameplay SDK target or install a gameplay hook until the binary can be identified or a supported clean executable is supplied.
+The current game root contains the project-built `MalayalamNpcBootstrap.asi` (214,016 bytes) and the already-present official x86 `dinput8.dll` loader. The prior project ASI (120,832 bytes) was replaced at that exact path; no other game file was changed. An earlier write attempt was rejected by desktop policy, but the later direct copy of the named project ASI succeeded. The loader already existed and matched the official per-file archive; it was not copied or replaced. The executable remains unidentified, so the ASI's automatic proximity path stays disabled and the game has not been launched.
 
-The executable SHA-256 was collected for local compatibility tracking and is intentionally not published in this repository. The x86 ASI build and export check prove only that the plugin binary matches the process architecture; they do not identify the game's supported version.
+## In-game controls
 
-### Build and inspect the no-op plugin
+- On a recognized GTA SA 1.0 US build, approach an ambient pedestrian; the prompt appears within 3.5 game units. Press **F6** or **Enter** to start.
+- On the current unrecognized build, the prompt is manual and remains available while the game is focused; **F6** or **Enter** starts chat without proximity detection.
+- Type a message and press **Enter** to send; **Backspace** edits; **Escape** cancels the active turn and leaves the chat.
+- The keyboard hook acts only while the game process is foreground. While typing, it suppresses GTA controls, while Windows, Alt+Tab, and Alt+F4 remain available.
 
-Run `powershell -NoProfile -File .\native\build.ps1`. This uses the installed Visual Studio x86 toolchain and writes an ignored artifact to `native/build/MalayalamNpcBootstrap.asi`. It does not require Plugin-SDK because the smoke plugin calls no GTA APIs. It appends lifecycle events under `%LOCALAPPDATA%\MalayalamNpcDemo\logs\game-bridge.log` and performs no gameplay work.
+## Validation and remaining work
 
-The local build was inspected as x86 and exported `InitializeASI` and `ShutdownASI`; an x86 host process loaded it and invoked both exports successfully. The in-game smoke test remains incomplete.
+`npm run check` passed and `npm run build:native` produced a 214,016-byte x86 ASI. The current game executable does not pass the automatic-proximity compatibility check. No bridge round trip, ASI loader startup, game launch, overlay rendering, subtitle shaping, audio playback, microphone interaction, or in-game key behavior has been validated. Do not describe the mod as working in-game until those checks pass on a recognized executable.
 
-## 2. Build and validate a harmless ASI first
-
-1. Follow the [Plugin-SDK setup](https://github.com/DK22Pac/plugin-sdk/wiki/Set-up-plugin-sdk) and [new-plugin guide](https://github.com/DK22Pac/plugin-sdk/wiki/Creating-a-new-plugin-in-plugin-sdk). Select the GTA San Andreas target and build architecture that match the verified executable. Plugin-SDK lists San Andreas among its supported game families, but the installed executable still needs a compatibility check.
-2. Build a no-op plugin that writes a short startup/shutdown line to a project-owned log outside the game folder. It must not hook gameplay or touch entities yet.
-3. Implement initialization outside `DllMain`/the Windows loader lock. Ultimate ASI Loader documents the `InitializeASI` callback for this; its default plugin-load behavior is outside `DllMain`. Keep initialization short and start any worker only after a valid plugin initialization callback.
-4. Confirm the SDK output architecture and plugin target from the build artifacts before installing anything.
-
-References: [Plugin-SDK README](https://github.com/DK22Pac/plugin-sdk) · [Ultimate ASI Loader README](https://github.com/ThirteenAG/Ultimate-ASI-Loader).
-
-## 3. Choose a loader without overwriting an existing proxy
-
-The [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader) accepts `.asi` plugins and supports several proxy DLL names. The correct proxy name and architecture depend on the actual game executable and existing installation. Do not rename a downloaded proxy to `dinput8.dll` (or another name) just because a generic guide says to; first check the loader's current supported-name list and check whether that DLL already belongs to another mod or wrapper.
-
-Before installing, make a manifest of only the files this project will add or replace. Back up any file that must be replaced. If an existing loader is present, determine how it loads plugins and test the no-op plugin through that setup before adding another loader. Never overwrite an unknown proxy DLL.
-
-For the current x86 target, Ultimate ASI Loader v9.7.4's official no-PDB x86 release archive was hash-checked (`14b3a1ad018899571ac9aa01482977f3c6d49e6cba99f552d01c5acacd1315e1`). It contains `dinput8.dll`, and that filename is absent from the inspected game root. This is only a selected candidate; no loader or ASI was installed into the game during this session.
-
-## 4. Add the native adapter in small steps
-
-The future native component belongs in `native/` and should be a thin game-side event bridge. It should not capture microphone audio, call OpenAI/ElevenLabs, access SQLite, or wait on network I/O from the game thread.
-
-Implement in this order:
-
-1. **Startup and shutdown:** log plugin lifecycle and leave the game unchanged when the backend is absent.
-2. **Backend connection:** connect from a worker to a backend bound only to `127.0.0.1`. Use the versioned UTF-8 newline-delimited JSON protocol described in [plan.md](../plan.md#7-local-bridge-and-security), bounded message sizes, a local token, and reconnect backoff. Do not put provider API keys in the game process.
-3. **Readiness:** send a versioned `hello`; remain unavailable for conversation until the backend and companion both report ready. Reconnect must never resume an old turn.
-4. **Single NPC binding:** configure `demo-npc-001` and one repeatable scene/location. Bind it explicitly to a currently validated game entity. Keep the application ID separate from the runtime entity handle, and attach a scene generation to events. Do not use a recycled pointer/handle as permanent identity or select a random nearest pedestrian as durable identity.
-5. **Interaction input:** add one interaction key and push-to-talk events. On key release, focus loss, target loss, save/load, or scene transition, stop capture/work and invalidate the turn. Emit only `npc.selected`, `ptt.started`, `ptt.stopped`, `npc.invalidated`, and `scene.changed` style events; never accept model-generated game commands.
-6. **Status only:** report selection/readiness to the game as a small indicator if a verified, safe game API exists. If not, keep status in the companion UI.
-
-The backend should verify protocol version, session/scene generation, configured NPC identity, readiness, and message limits before accepting any event. Native queues must be bounded; status updates can be coalesced. Provider results for cancelled or stale generations must be discarded.
-
-## 5. Connect components and test away from live gameplay first
-
-1. Start `npm run start:live` and open the printed `127.0.0.1` URL. Confirm the page reports its actual mode and allow microphone access. Keep `.env` and all provider credentials in the backend environment only.
-2. Test the protocol with synthetic messages before loading the plugin. Verify duplicate events, malformed JSON, oversize frames, disconnection, cancellation, and scene-generation changes.
-3. Install only the no-op plugin and verify the game launches and shuts down normally. Inspect loader logs and the project-owned plugin log.
-4. Add target selection and entity invalidation, still with providers disabled. Verify that an invalid/despawned target cancels interaction without affecting the game.
-5. Only after those steps pass, connect the companion PTT event to the selected NPC and test a mock turn.
-6. Add live providers after the backend adapters exist. Show Malayalam subtitles independently from audio, and label mock/live status clearly.
-7. Verify memory isolation/reset and restart behavior. The current in-memory store loses conversation history on process exit; persistent recall requires the later storage milestone.
-
-Do not claim in-game voice is working until a live exchange has been demonstrated through the verified game binding. The current mock CLI is not connected to the game.
-
-## 6. Install, record, and remove
-
-- Install only the project-built `.asi`, its non-secret configuration, and a loader only if this installation does not already have a compatible one.
-- Keep the provider `.env`, database, logs, recordings, and temporary audio outside the game directory and source repository.
-- Record exact tested executable hash, SDK revision, loader filename/version, architecture, plugin build, and installation manifest.
-- For removal, close the game; remove only files named in this project's manifest; restore any backed-up file that this project replaced. Do not delete other mods, saves, or game files.
-
-No executable, game asset, save, or third-party loader binary should be committed or bundled with this project. Check [RULES.md](../RULES.md) and the licensing/privacy discussion in [plan.md](../plan.md#11-legal-licensing-and-privacy-checklist) before a public demo.
+Before a compatible in-game demo, verify the exact executable hash and loader, then validate startup/shutdown, nearby-ped selection, leaving range, cancellation, a mock reply, subtitles/audio, and a live reply. Never use model output as a game command. For removal, close the game and remove only this project's manifest-listed files; do not remove saves, other plugins, or existing proxy DLLs.

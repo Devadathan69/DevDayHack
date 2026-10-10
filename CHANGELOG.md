@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-11T00:27:30+05:30 — Implement the in-game typed conversation overlay
+
+- Changed: Replaced lifecycle-only behavior with a GDI+ transparent overlay, foreground-only F6/Enter interaction, typed turns, subtitles, optional reply audio, cancellation, and a version-gated pedestrian proximity scan. Added a random local bridge token and route-scoped backend authentication. Updated `README.md`, `docs/game-integration.md`, and `plan.md`. Refreshed only the project's `MalayalamNpcBootstrap.asi` in the game root; the existing loader and other game files were left untouched.
+- Why: Continue the partial native integration toward the requested near-NPC prompt and reply flow while disabling game-memory reads for an executable that does not match the supported layout fingerprints.
+- Validation: `npm run build:native` succeeded (214,016-byte x86 ASI); `npm run check` and `git diff --check` passed. The installed ASI SHA-256 matches the build output (`C80FE29CA72A33B2B978313099EE3FB01CFB2600523451FEEF364FCCC2F6BAB5`). The existing x86 ASI loader matched the official release sidecar in the earlier inspection. The game's entry-point RVA `0x458DB8` does not match the recognized GTA SA 1.0 US layouts.
+- Limitations: The game was not launched, so loader startup, overlay, keys, subtitles, Malayalam shaping, audio, and proximity behavior remain unverified. Automatic proximity is disabled for the installed executable; the compiled fallback is manual F6/Enter chat. A bridge smoke attempt was rejected by desktop policy before the test process started, so no authenticated backend round trip was verified. The in-game adapter accepts typed text only; microphone push-to-talk remains in the browser.
+
 ## 2026-10-10T23:26:00+05:30 — Record executable compatibility fingerprint
 
 - Changed: Added the PE timestamp and entry-point fingerprint to `docs/game-integration.md`, including the adjacent installer-script version clue and the comparison against Plugin-SDK's official game-version detector.

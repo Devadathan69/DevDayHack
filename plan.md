@@ -2,7 +2,7 @@
 
 **Delivery strategy:** integrate one NPC end to end, validate the demo, and only then enable additional NPC instances. Build reusable boundaries from the beginning without implementing city-scale behavior prematurely.
 
-**Status (10 October 2026):** The reusable controller, mock mode, local companion, OpenAI/ElevenLabs adapters, and SQLite memory are implemented. Syntax, deterministic adapter/storage checks, mock conversation recall, and live-mode server startup have been validated. The connected account has access to the configured OpenAI model, ElevenLabs Scribe, Eleven v4, and a Malayalam-labeled voice. No paid live voice turn or in-game exchange has been run. The game executable's identity/SDK compatibility is still unverified, so Phase 4 remains open and this is currently a standalone companion rather than a complete in-game mod.
+**Status (11 October 2026):** The reusable controller, mock mode, local companion, OpenAI/ElevenLabs adapters, SQLite memory, GDI+ overlay, typed bridge flow, subtitle/audio display, and local bridge-token authentication are implemented. `npm run check` and the x86 native build pass. The rebuilt ASI and verified Ultimate ASI Loader x86 proxy are present in the game root. Nearby-pedestrian memory reads are gated to GTA SA 1.0 US entry points; the installed executable does not match, so the ASI's compiled fallback is manual F6/Enter chat. The game has not been launched, and no bridge round trip, live voice turn, or in-game exchange has been verified. A bridge smoke attempt was rejected by desktop policy before process creation. Phase 4 remains incomplete; the current installation is not a validated in-game mod.
 
 ## 1. Goal and confirmed requirements
 
@@ -806,14 +806,14 @@ At each step, keep one speaker active unless a new arbitration model has been im
 
 ## 17. Immediate next actions
 
-1. Establish the exact executable/version from the actual official game install and resolve the `gta-sa.exe` versus `installscript.vdf` filename mismatch.
-2. Confirm a documented native target and loader for that exact executable before writing game-specific hooks.
-3. Perform an opt-in live voice exchange outside GTA and check Malayalam transcription and pronunciation.
-4. Implement and validate the versioned localhost bridge, explicit NPC binding, and game lifecycle cancellation for the verified target.
-5. Run the complete in-game PTT, voice, memory, restart, and reset acceptance flow.
+1. Identify a GTA executable whose verified memory layout is recognized by the proximity scanner, or choose a documented API/interface for this installation.
+2. Run the backend and validate token-authenticated bridge health, selection, typed response, delivery, and cancellation; the attempted local smoke process could not start because desktop policy blocked process creation.
+3. Load the ASI with the installed compatible loader and verify the overlay/key path on a supported executable before relying on proximity behavior.
+4. Perform an opt-in live voice exchange outside GTA and check Malayalam transcription and pronunciation.
+5. Run the in-game proximity, subtitle, audio, cancellation, memory, restart, and reset flow; add native PTT only if the demo requires it.
 6. Rehearse the tested demo; add another NPC only after V1 is stable.
 
-**Native work remains gated on:** a verified executable identity/compatible game SDK and loader. The current provider defaults are `gpt-4.1-mini`, ElevenLabs Scribe v2, and Eleven v4. The current local `.env` selects a Malayalam-labeled voice available in the account; no account-specific voice ID or API key is committed. Voice quality has not been checked.
+**Automatic proximity remains gated on:** a verified executable layout and a working loader on that executable. The current provider defaults are `gpt-4.1-mini`, ElevenLabs Scribe v2, and Eleven v4. The current local `.env` selects a Malayalam-labeled voice available in the account; no account-specific voice ID or API key is committed. Voice quality has not been checked.
 
 ## 18. External technical and policy references
 

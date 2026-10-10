@@ -17,6 +17,8 @@ export function loadConfig(env = process.env) {
   const mode = env.NPC_MODE ?? "mock";
   if (!["mock", "live"].includes(mode)) throw new Error("NPC_MODE must be 'mock' or 'live'.");
 
+  const localAppData = env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local");
+  const appDataDirectory = join(localAppData, "MalayalamNpcDemo");
   const config = {
     mode,
     host: "127.0.0.1",
@@ -30,7 +32,8 @@ export function loadConfig(env = process.env) {
     openAiModel: env.OPENAI_MODEL ?? "gpt-4.1-mini",
     elevenLabsVoiceId: env.ELEVENLABS_VOICE_ID,
     elevenLabsTtsModel: env.ELEVENLABS_TTS_MODEL ?? "eleven_v4",
-    dataDirectory: resolve(env.DATA_DIR ?? join(env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local"), "MalayalamNpcDemo", "data")),
+    dataDirectory: resolve(env.DATA_DIR ?? join(appDataDirectory, "data")),
+    bridgeTokenPath: join(appDataDirectory, "bridge-token"),
     openAiApiKey: env.OPENAI_API_KEY,
     elevenLabsApiKey: env.ELEVENLABS_API_KEY,
   };
