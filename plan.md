@@ -2,7 +2,7 @@
 
 **Delivery strategy:** integrate one NPC end to end, validate the demo, and only then enable additional NPC instances. Build reusable boundaries from the beginning without implementing city-scale behavior prematurely.
 
-**Status (11 October 2026):** The reusable controller, mock mode, local companion, OpenAI/ElevenLabs adapters, SQLite memory, GDI+ overlay, typed bridge flow, subtitle/audio display, and local bridge-token authentication are implemented. `npm run check` and the x86 native build pass. The rebuilt ASI and verified Ultimate ASI Loader x86 proxy are present in the game root. Nearby-pedestrian memory reads are gated to GTA SA 1.0 US entry points; the installed executable does not match, so the ASI's compiled fallback is manual F6/Enter chat. The game has not been launched, and no bridge round trip, live voice turn, or in-game exchange has been verified. A bridge smoke attempt was rejected by desktop policy before process creation. Phase 4 remains incomplete; the current installation is not a validated in-game mod.
+**Status (11 October 2026):** The reusable controller, local companion, OpenAI/ElevenLabs adapters, SQLite memory, GDI+ overlay, typed bridge flow, subtitle/audio display, and local bridge-token authentication are implemented. The backend requires provider credentials and stores memory in SQLite; it has no offline runtime. `npm run check` and the x86 native build pass. The rebuilt ASI and verified Ultimate ASI Loader x86 proxy are present in the game root. Nearby-pedestrian memory reads are gated to GTA SA 1.0 US entry points; the installed executable does not match, so the ASI's compiled fallback is manual F6/Enter chat. The game has not been launched, and no bridge round trip, live voice turn, or in-game exchange has been verified. A bridge smoke attempt was rejected by desktop policy before process creation. Phase 4 remains incomplete; the current installation is not a validated in-game mod.
 
 ## 1. Goal and confirmed requirements
 
@@ -29,7 +29,7 @@ This document is self-contained: it specifies a new project, its component bound
 
 ### Scope boundary for provider details
 
-Do not block architecture work on selecting an OpenAI model, ElevenLabs model, voice ID, or speech configuration. Define ports and mock providers now; fill in the ElevenLabs speech and OpenAI dialogue adapters when implementing the live integration milestone. Keep SDK-specific types, provider session state, and credentials outside the NPC domain layer.
+Keep OpenAI and ElevenLabs behind provider interfaces, with credentials and SDK-specific types outside the NPC domain layer. Runtime conversations use the live adapters; tests can isolate provider requests with stubbed HTTP responses.
 
 ### Decisions still required
 
@@ -221,9 +221,9 @@ const npcA = new NpcController(profiles.npcA, sharedServices);
 | `NpcController` | Orchestrate a turn without depending on GTA-specific APIs |
 | `SessionManager` | Own target selection, PTT state, cancellation, and single-speaker arbitration |
 | `GameBridge` | Translate validated native messages into application events |
-| `SpeechRecognizer` | Transcribe audio; support a mock implementation |
+| `SpeechRecognizer` | Transcribe audio and expose bounded transcript results |
 | `DialogueBrain` | Produce short character-consistent Malayalam responses |
-| `SpeechSynthesizer` | Generate voice audio; support mocks and subtitle-only fallback |
+| `SpeechSynthesizer` | Generate voice audio and report failures for subtitle fallback |
 | `MemoryStore` | Read/write history and summaries with enforced NPC/player isolation |
 | `CompanionUI` | Capture audio, display states/subtitles, play speech, acknowledge playback |
 
@@ -276,7 +276,7 @@ interface MemoryStore {
 }
 ```
 
-Validate inputs/outputs at the application boundary. Interfaces use bounded UTF-8 text and explicit audio metadata, not vendor-specific response objects. Mock implementations must support success, delay, cancellation, malformed responses, and failures.
+Validate inputs/outputs at the application boundary. Interfaces use bounded UTF-8 text and explicit audio metadata, not vendor-specific response objects. Provider test doubles should cover success, delay, cancellation, malformed responses, and failures without adding an offline runtime mode.
 
 Provider clients and the database connection may be shared. Mutable dialogue state must be scoped to `(worldId, playerId, npcId)`; shared services must not contain a global conversation history.
 
@@ -497,7 +497,7 @@ gta-sa-malayalam-npcs/
       memory/                # SQLite repository, migrations, summaries
       bridge/                # Native protocol and companion transport
       config/                # Environment/schema validation
-    tests/                   # Unit/integration tests with mock providers
+    tests/                   # Unit/integration tests with stubbed provider responses
   companion/
     src/                     # Microphone, subtitles, playback, controls
   profiles/                  # Original NPC profiles; no credentials
@@ -541,17 +541,17 @@ Deliverables: compatibility record, harmless native smoke-test log, and a descri
 
 ### Phase 1: reusable backend, no game dependency
 
-- [x] Implement provider interfaces and mock adapters.
+- [x] Implement provider interfaces and live adapters; isolate tests with stubbed responses.
 - [x] Implement `NpcController`, registry, and session state machine.
 - [x] Register exactly one profile through the reusable factory.
 - [x] Implement validated, short Malayalam responses and error/cancellation handling.
 - [x] Add deterministic unit and adapter tests.
 
-**Repository progress (10 October 2026):** The CLI and local companion both use the same profile registry/controller. Deterministic checks cover live-provider request construction, SQLite restart persistence, private scope isolation, delivery status, and stale reset writes. The standalone mock companion completed a two-turn Malayalam recall walkthrough over localhost HTTP. Mock mode remains typed-only; live microphone/provider quality still needs an opt-in real-device round trip.
+**Repository progress (10 October 2026):** The backend and local companion use the same profile registry/controller. Deterministic checks cover live-provider request construction, SQLite restart persistence, private scope isolation, delivery status, and stale reset writes. A previous CLI and provider-free companion were removed; the current app requires live provider credentials. Live microphone/provider quality still needs an opt-in real-device round trip.
 
-**Exit:** the single controller completes mock turns with no GTA/provider dependencies. A synthetic second ID can be used in tests, but a second in-game NPC is not implemented here.
+**Exit:** the single controller is covered by deterministic provider stubs outside GTA; the running app uses live providers. A synthetic second ID can be used in tests, but a second in-game NPC is not implemented here.
 
-Deliverables: shared interfaces, controller, registry, session state machine, mock adapters, and deterministic unit tests.
+Deliverables: shared interfaces, controller, registry, session state machine, live provider adapters, and deterministic provider-stub tests.
 
 ### Phase 2: persistence
 
@@ -595,7 +595,7 @@ Deliverables: native adapter, validated protocol, scene lifecycle integration, a
 - [ ] Rehearse memory recall, isolation, restart, and reset.
 - [ ] Test network/provider failures and expired/late audio results.
 - [ ] Check recording layout, microphone clarity, and game/music volume.
-- [ ] Record a backup video; label any mock or prerecorded fallback explicitly.
+- [ ] Record a backup video; label any cached or prerecorded fallback explicitly.
 - [ ] Document the tested game/SDK/loader/provider versions and launch instructions.
 
 **Exit:** all V1 acceptance criteria below pass on the actual Windows demo machine. Freeze the working single-NPC demo before starting multi-NPC integration.
@@ -624,13 +624,13 @@ Deliverables: native adapter, validated protocol, scene lifecycle integration, a
 9. Malayalam subtitles render correctly in the companion; native glyph rendering is not assumed.
 10. Reset removes associated application memory and temporary artifacts, not arbitrary game files.
 11. No credentials, personal recordings, database files, or proprietary game assets appear in the repository/package.
-12. The demo accurately labels live, cached, mock, and prerecorded behavior.
+12. The demo accurately labels live, cached, and prerecorded behavior.
 
 ### Test layers
 
 | Layer | Required checks | Tools/approach |
 | --- | --- | --- |
-| Domain unit tests | Profile validation, turn ownership, transitions, context construction | Mock providers and fake clock |
+| Domain unit tests | Profile validation, turn ownership, transitions, context construction | Provider stubs and fake clock |
 | Memory integration tests | Persistence, isolation, duplicates, reset during pending turn | Temporary SQLite database |
 | Protocol tests | Split/coalesced frames, invalid JSON, oversized messages, stale generations | Native/backend fixtures |
 | Companion tests | PTT down/up, focus loss, empty recording, permission denial, duplicate playback | Browser automation plus device smoke tests |
@@ -705,7 +705,7 @@ This plan is technical guidance, not legal clearance. A public hackathon present
 
 These are script names to implement, not existing executable commands:
 
-- `dev`: start the backend and companion with mock adapters.
+- `dev`: start the backend and companion with configured live providers.
 - `test`: run domain, memory, and protocol tests without paid API calls.
 - `test:live`: explicit opt-in provider smoke tests.
 - `build`: build the TypeScript applications and static companion assets.
@@ -749,12 +749,12 @@ Display:
 - Current NPC name/application ID and scene-binding validity.
 - Current state and turn ID.
 - Last-stage timing and a concise actionable error.
-- Whether the displayed result is live, mocked, cached, or a fallback.
+- Whether the displayed result is live, cached, or a fallback.
 - Reset, cancel, mute, and test-audio controls.
 
 ### Debugging order
 
-1. Reproduce a domain/memory issue with mocked providers, outside GTA.
+1. Reproduce a domain/memory issue with stubbed provider clients, outside GTA.
 2. Reproduce microphone/playback behavior with the companion, outside GTA.
 3. Validate the native handshake and PTT events without live providers.
 4. Validate one provider turn without native events.
@@ -794,14 +794,14 @@ At each step, keep one speaker active unless a new arbitration model has been im
 | --- | --- | --- |
 | Build label does not identify a supported executable | Hooks may fail or crash | Hash/version preflight; reject unsupported target before hooking |
 | Existing loader/graphics mods conflict | Instability or failed plugin loading | Inventory and test a minimal setup without discarding user files |
-| Native development takes longer than expected | No in-game integration | Finish mock backend/companion independently; label unintegrated showcase honestly |
+| Native development takes longer than expected | No in-game integration | Finish the browser companion independently; label the unintegrated showcase honestly |
 | Background microphone/audio restrictions | Voice stops when GTA is focused | Preflight with the actual machine; optional companion desktop shell |
 | Pedestrian lifecycle changes | Wrong entity receives a response | Stable app identity plus scene-generation binding and cancellation |
 | Late provider result after reset | Deleted memory reappears | Transactional reset generation checked on every write |
 | Recognition quality is poor | NPC answers the wrong question | Show transcript; offer explicit text correction/input fallback |
 | Speech synthesis is slow/unavailable | Long silence or missing audio | Immediate subtitles and a clearly identified text-only fallback |
 | Long/unbounded history | High cost and slow replies | Bounded context; optional later summaries; no unlimited-recall claims |
-| Live service outage | Demo interruption | Prepared, clearly labeled recording or mock mode |
+| Live service outage | Demo interruption | Prepared, clearly labeled recording or documented offline fallback |
 | Licensing/privacy uncertainty | Public presentation or distribution risk | Review actual agreements and proposed use; do not treat technical success as permission |
 
 ## 17. Immediate next actions

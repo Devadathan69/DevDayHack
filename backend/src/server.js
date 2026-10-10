@@ -6,16 +6,14 @@ import { dirname, resolve } from "node:path";
 import { loadConfig } from "./config.js";
 import { NpcRegistry } from "./npc-registry.js";
 import { SessionManager } from "./session-manager.js";
-import { createMockProviders } from "./providers/mock-providers.js";
 import { createLiveProviders } from "./providers/live-providers.js";
-import { InMemoryMemoryStore } from "./memory/in-memory-memory-store.js";
 import { SqliteMemoryStore } from "./memory/sqlite-memory-store.js";
 
 const config = loadConfig();
 const profilePath = new URL("../../profiles/demo-npc-001.json", import.meta.url);
 const profile = JSON.parse(await readFile(fileURLToPath(profilePath), "utf8"));
-const memory = config.mode === "live" ? new SqliteMemoryStore(config.dataDirectory) : new InMemoryMemoryStore();
-const providers = config.mode === "live" ? createLiveProviders(config) : createMockProviders();
+const memory = new SqliteMemoryStore(config.dataDirectory);
+const providers = createLiveProviders(config);
 const registry = new NpcRegistry([profile], { ...providers, memory });
 const manager = new SessionManager({ registry, memory });
 const companionDirectory = fileURLToPath(new URL("../../companion/", import.meta.url));
@@ -137,10 +135,10 @@ function clearAudioForTurn(turnId = null) {
 
 async function runTurn(request, audioInput, response) {
   if (manager.state !== "SELECTED") throw new Error("Select Manu first with F6 or the Select Manu button.");
-  if (config.mode === "live" && liveTurns >= config.liveTurnLimit) {
+  if (liveTurns >= config.liveTurnLimit) {
     throw new Error(`This run reached its ${config.liveTurnLimit}-turn live API limit. Restart the local server to begin another demo session.`);
   }
-  if (config.mode === "live") liveTurns += 1;
+  liveTurns += 1;
 
   let clientGone = false;
   const onAborted = () => { clientGone = true; manager.cancel("The companion disconnected during this turn."); };
@@ -154,7 +152,6 @@ async function runTurn(request, audioInput, response) {
       audioUrl = saveAudio(result.audio.bytes, result.audio.mimeType ?? "audio/mpeg", result.turnContext.turnId);
     }
     sendJson(response, 200, {
-      mode: config.mode,
       turnId: result.turnContext.turnId,
       transcript: result.transcript.text,
       inputMode: result.transcript.inputMode ?? (audioInput.text ? "typed" : "voice"),
@@ -203,7 +200,6 @@ const server = createServer(async (request, response) => {
     if (request.method === "GET" && url.pathname === "/api/status") {
       const gameConnected = Date.now() - lastBridgeSeenAt < 15_000;
       sendJson(response, 200, {
-        mode: config.mode,
         state: manager.state,
         selected: manager.hasSelection,
         npc: { id: profile.id, name: profile.displayName },
@@ -211,7 +207,7 @@ const server = createServer(async (request, response) => {
         gameMessage: gameConnected
           ? "The local ASI bridge is authenticated and responding."
           : "The local ASI bridge has not connected.",
-        liveTurnsRemaining: config.mode === "live" ? Math.max(0, config.liveTurnLimit - liveTurns) : null,
+        liveTurnsRemaining: Math.max(0, config.liveTurnLimit - liveTurns),
         audioLimitSeconds: config.maxAudioSeconds,
       });
       return;
@@ -311,8 +307,8 @@ server.listen(config.port, config.host, async () => {
     return;
   }
   console.log(`Malayalam NPC companion: http://${config.host}:${config.port}`);
-  console.log(`Mode: ${config.mode}${config.mode === "live" ? ` (${config.openAiModel}, ElevenLabs ${config.elevenLabsTtsModel})` : " (mock providers)"}`);
-  console.log(`Memory: ${config.mode === "live" ? resolve(config.dataDirectory, "memory.sqlite") : "in-memory (cleared on exit)"}`);
+  console.log(`Providers: OpenAI ${config.openAiModel}, ElevenLabs ${config.elevenLabsTtsModel} (credentials hidden)`);
+  console.log(`Memory: ${resolve(config.dataDirectory, "memory.sqlite")}`);
   console.log(`GTA bridge token: written to the current user's local application data.`);
 });
 

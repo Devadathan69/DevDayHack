@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-11T00:38:26+05:30 — Remove offline mock runtime
+
+- Changed: Made the companion always use OpenAI and ElevenLabs adapters with SQLite memory. Removed the mock provider, in-memory store, terminal mock demo, mock UI states, `NPC_MODE`, and separate `start:live`/demo commands. `npm start` is now the only server start command. Updated README, integration/submission instructions, and project plan.
+- Why: User requested complete removal of mock mode so the app cannot silently serve synthetic dialogue.
+- Validation: `npm run check` passed. Source search found no mock runtime references outside the explicit rejection of the obsolete `NPC_MODE`, `--mock`, and `--live` settings.
+- Limitations: Every app conversation now requires valid provider credentials and may make provider API calls. No provider-backed conversation was run as part of this change; the full test suite was not run.
+
 ## 2026-10-11T00:27:30+05:30 — Implement the in-game typed conversation overlay
 
 - Changed: Replaced lifecycle-only behavior with a GDI+ transparent overlay, foreground-only F6/Enter interaction, typed turns, subtitles, optional reply audio, cancellation, and a version-gated pedestrian proximity scan. Added a random local bridge token and route-scoped backend authentication. Updated `README.md`, `docs/game-integration.md`, and `plan.md`. Refreshed only the project's `MalayalamNpcBootstrap.asi` in the game root; the existing loader and other game files were left untouched.

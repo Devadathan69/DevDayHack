@@ -1,6 +1,6 @@
 const $ = (id) => document.getElementById(id);
 const elements = {
-  modeBadge: $("modeBadge"), gameMessage: $("gameMessage"), selectionState: $("selectionState"),
+  providerBadge: $("providerBadge"), gameMessage: $("gameMessage"), selectionState: $("selectionState"),
   selectButton: $("selectButton"), resetButton: $("resetButton"), messages: $("messages"),
   emptyState: $("emptyState"), pttButton: $("pttButton"), pttLabel: $("pttLabel"),
   micState: $("micState"), cancelButton: $("cancelButton"), textToggle: $("textToggle"),
@@ -53,29 +53,27 @@ function updateControls() {
   const key = document.createElement("kbd");
   key.textContent = "F6";
   elements.selectButton.append(key);
-  const micAvailable = status?.mode === "live";
+  const micAvailable = status !== null;
   elements.pttButton.disabled = !selected || !micAvailable || status?.state !== "SELECTED" || busy || permissionPending || pendingRecorder !== null;
   elements.pttHint.textContent = micAvailable
     ? `Hold F7 while this companion window is focused, or press and hold the button. Release to send a recording (up to ${status.audioLimitSeconds} seconds).`
-    : "Mock mode uses the text fallback only. Run npm run start:live to enable microphone input and voice playback.";
+    : "Waiting for the local provider service…";
   elements.resetButton.disabled = !selected || busy;
   elements.cancelButton.disabled = !busy && !recorder && !activeTurnId && !audioElement && !permissionPending;
-  elements.muteButton.disabled = status?.mode !== "live";
+  elements.muteButton.disabled = false;
   elements.muteButton.textContent = voiceMuted ? "Unmute voice" : "Mute voice";
   if (!recorder) elements.pttLabel.textContent = busy
     ? "Waiting for reply…"
-    : micAvailable ? "Hold F7 to speak" : "Microphone requires live mode";
+    : micAvailable ? "Hold F7 to speak" : "Connecting…";
 }
 
 async function refreshStatus() {
   status = await request("/api/status");
-  elements.modeBadge.textContent = status.mode === "live" ? "LIVE PROVIDERS" : "MOCK DEMO";
-  elements.modeBadge.className = `badge ${status.mode}`;
+  elements.providerBadge.textContent = "LIVE PROVIDERS";
+  elements.providerBadge.className = "badge live";
   elements.gameMessage.textContent = status.gameMessage;
-  elements.limitLabel.textContent = status.liveTurnsRemaining === null ? "" : `${status.liveTurnsRemaining} live turns remaining this run`;
-  $("privacyFooter").textContent = status.mode === "mock"
-    ? "Mock mode · no microphone audio or provider API requests are sent"
-    : "Live mode · audio goes to ElevenLabs; transcript/history go to OpenAI; memory stays in local SQLite";
+  elements.limitLabel.textContent = `${status.liveTurnsRemaining} live turns remaining this run`;
+  $("privacyFooter").textContent = "Live providers · audio goes to ElevenLabs; transcript/history go to OpenAI; memory stays in local SQLite";
   updateControls();
 }
 
@@ -213,11 +211,6 @@ async function submitTurn(path, options) {
     const timingText = result.timings
       ? ` · STT ${(result.timings.speechRecognitionMs / 1000).toFixed(1)}s, reply ${(result.timings.dialogueMs / 1000).toFixed(1)}s, voice ${(result.timings.speechSynthesisMs / 1000).toFixed(1)}s`
       : "";
-    if (result.mode === "mock") {
-      await acknowledge({ subtitleDisplayed: true, audioPlayed: false });
-      setStatus("Mock reply shown; no voice audio was generated.");
-      return;
-    }
     if (result.speechError) {
       elements.replyActions.hidden = false;
       elements.playButton.hidden = true;
@@ -396,7 +389,7 @@ window.addEventListener("beforeunload", () => {
 try {
   await refreshStatus();
   if (status.selected) await loadHistory();
-  setStatus(status.mode === "live" ? "Live providers ready. Select Manu to begin." : "Mock mode ready. Select Manu to begin.");
+  setStatus("Live providers ready. Select Manu to begin.");
 } catch (error) {
   setStatus(error.message, "error");
 }

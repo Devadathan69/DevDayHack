@@ -4,17 +4,20 @@ A local Windows prototype for having a Malayalam conversation with the original 
 
 **Current boundary:** the native x86 ASI now draws a transparent overlay, sends typed turns through an authenticated localhost bridge, and displays reply subtitles with optional audio. Automatic nearby-pedestrian detection is enabled only for the GTA SA 1.0 US executable layouts recognized by Plugin-SDK. The installed `gta-sa.exe` does not match those fingerprints, so it falls back to manual F6/Enter chat and cannot claim NPC proximity on this installation. The rebuilt ASI and verified x86 ASI loader are present in the game root, but the game has not been launched with them.
 
-## Start the live companion
+## Start the companion
 
 Prerequisites: Windows, Node.js 22.18 or newer, a microphone and speakers, provider API access, and a supported browser.
 
 The project has no npm package dependencies. In a fresh checkout, create `.env` from `.env.example` and set `OPENAI_API_KEY`, `ELEVENLABS_API_KEY`, and `ELEVENLABS_VOICE_ID` to a Malayalam-capable voice in your account. Keep those values in `.env`; never put them in a profile or browser setting. The current local checkout already has these settings configured.
 
+Every app run uses the live providers; there is no offline response mode. Conversation turns may make OpenAI and ElevenLabs API calls.
+Remove any old `NPC_MODE` setting from `.env`; the app rejects the former provider-mode setting and command-line flags.
+
 From the project folder, run:
 
 ```powershell
-npm run doctor -- --live
-npm run start:live
+npm run doctor
+npm start
 ```
 
 Open **http://127.0.0.1:4177** in the browser and allow microphone access. The server prints the actual URL if you change `UI_PORT`. Click **Select Manu** (or press **F6** while the companion window is focused), then hold **F7** while speaking Malayalam and release it to send the recording. Press **Escape** to cancel a recording or active turn. Use **Mute voice** to mute generated audio. The typed-message option is available as a fallback. The browser may require a click on **Play reply** before it allows audio playback.
@@ -23,19 +26,11 @@ Starting the server also creates a random bridge token under `%LOCALAPPDATA%\Mal
 
 F6, F7, and Escape work while the **companion browser window has focus**. They are not registered as GTA or global hotkeys. The companion does not know which pedestrian is in front of the player.
 
-Live mode uses OpenAI's [Responses API](https://platform.openai.com/docs/api-reference/responses) with `gpt-4.1-mini` by default. ElevenLabs handles [speech transcription](https://elevenlabs.io/docs/api-reference/speech-to-text/convert) with Scribe v2 and [speech generation](https://elevenlabs.io/docs/api-reference/text-to-speech/convert) with Eleven v4. The current `.env` is configured with a Malayalam-labeled voice from the connected ElevenLabs account; choose a different account voice with `ELEVENLABS_VOICE_ID`. Eleven v4's [supported language list includes Malayalam](https://elevenlabs.io/docs/help-center/other/what-languages-do-you-support). Recognition and pronunciation still need a real microphone/provider check.
+Dialogue uses OpenAI's [Responses API](https://platform.openai.com/docs/api-reference/responses) with `gpt-4.1-mini` by default. ElevenLabs handles [speech transcription](https://elevenlabs.io/docs/api-reference/speech-to-text/convert) with Scribe v2 and [speech generation](https://elevenlabs.io/docs/api-reference/text-to-speech/convert) with Eleven v4. The current `.env` is configured with a Malayalam-labeled voice from the connected ElevenLabs account; choose a different account voice with `ELEVENLABS_VOICE_ID`. Eleven v4's [supported language list includes Malayalam](https://elevenlabs.io/docs/help-center/other/what-languages-do-you-support). Recognition and pronunciation still need a real microphone/provider check.
 
-Live mode allows 25 turns per server run by default; change `LIVE_TURN_LIMIT` in `.env` to adjust the cap. The turn cap limits repeated API calls but is not a monetary cost estimate. OpenAI and ElevenLabs can receive the transcript and bounded dialogue context; ElevenLabs receives the captured audio and generated reply text. Raw microphone audio is not written to disk. Delivered transcripts and replies are saved outside the repository under `%LOCALAPPDATA%\MalayalamNpcDemo\data\memory.sqlite`; generated audio is held temporarily in memory and deleted when delivered, cancelled, reset, or expired. Use **Reset memory** to erase Manu's local history. Provider-side retention follows each provider's account and service settings.
+Each server run allows 25 provider-backed turns by default; change `LIVE_TURN_LIMIT` in `.env` to adjust the cap. The turn cap limits repeated API calls but is not a monetary cost estimate. OpenAI and ElevenLabs can receive the transcript and bounded dialogue context; ElevenLabs receives the captured audio and generated reply text. Raw microphone audio is not written to disk. Delivered transcripts and replies are saved outside the repository under `%LOCALAPPDATA%\MalayalamNpcDemo\data\memory.sqlite`; generated audio is held temporarily in memory and deleted when delivered, cancelled, reset, or expired. Use **Reset memory** to erase Manu's local history. Provider-side retention follows each provider's account and service settings.
 
 To stop the companion, press **Ctrl+C** in its terminal.
-
-## Run without provider calls
-
-```powershell
-npm run start
-```
-
-This starts a labeled mock companion with typed input only and in-memory history. It makes no provider requests, captures no microphone audio, and clears memory when the process exits. The older terminal walkthrough remains available with `npm run demo`.
 
 ## In-game overlay and keys
 
@@ -48,7 +43,7 @@ In the in-game overlay:
 - **Backspace** edits the input; **Escape** cancels the active turn and leaves the conversation.
 - GTA controls are suppressed while typing; Windows, Alt+Tab, and Alt+F4 remain available.
 
-The in-game adapter currently supports typed turns only; microphone push-to-talk remains in the browser companion. This installation uses the manual F6/Enter fallback because its executable is unidentified. The ASI loader and plugin are installed, but in-game rendering, Malayalam shaping, audio, and key behavior remain unverified.
+The in-game adapter currently supports typed turns only; microphone push-to-talk remains in the browser companion. This installation uses the manual F6/Enter fallback because its executable is unidentified. The ASI loader and plugin are installed, but in-game rendering, Malayalam shaping, audio, and key behavior remain unverified. In-game replies use the configured OpenAI and ElevenLabs services and require valid provider credentials.
 
 ## Checks and native build
 

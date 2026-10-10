@@ -12,15 +12,12 @@ function integerSetting(env, name, fallback, min, max) {
 }
 
 export function loadConfig(env = process.env) {
-  if (process.argv.includes("--mock")) env = { ...env, NPC_MODE: "mock" };
-  if (process.argv.includes("--live")) env = { ...env, NPC_MODE: "live" };
-  const mode = env.NPC_MODE ?? "mock";
-  if (!["mock", "live"].includes(mode)) throw new Error("NPC_MODE must be 'mock' or 'live'.");
-
+  if (env.NPC_MODE !== undefined || process.argv.some((arg) => arg === "--mock" || arg === "--live")) {
+    throw new Error("NPC_MODE and provider-mode flags are no longer supported. The app always uses live providers; remove the old setting or flag.");
+  }
   const localAppData = env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local");
   const appDataDirectory = join(localAppData, "MalayalamNpcDemo");
   const config = {
-    mode,
     host: "127.0.0.1",
     port: integerSetting(env, "UI_PORT", 4177, 1024, 65535),
     worldId: env.WORLD_ID ?? "demo-world",
@@ -43,19 +40,17 @@ export function loadConfig(env = process.env) {
       throw new Error(`${name} must contain 1–128 characters.`);
     }
   }
-  if (mode === "live") {
-    const missing = [
-      ["OPENAI_API_KEY", config.openAiApiKey],
-      ["ELEVENLABS_API_KEY", config.elevenLabsApiKey],
-      ["ELEVENLABS_VOICE_ID", config.elevenLabsVoiceId],
-    ].filter(([, value]) => !value).map(([name]) => name);
-    if (missing.length) throw new Error(`Live mode needs ${missing.join(" and ")}. Add them to the local .env file.`);
-    if (!/^[A-Za-z0-9_-]{5,128}$/u.test(config.elevenLabsVoiceId)) {
-      throw new Error("ELEVENLABS_VOICE_ID must be a valid voice ID.");
-    }
-    if (!["eleven_v3", "eleven_v4"].includes(config.elevenLabsTtsModel)) {
-      throw new Error("ELEVENLABS_TTS_MODEL must be 'eleven_v3' or 'eleven_v4' to support Malayalam.");
-    }
+  const missing = [
+    ["OPENAI_API_KEY", config.openAiApiKey],
+    ["ELEVENLABS_API_KEY", config.elevenLabsApiKey],
+    ["ELEVENLABS_VOICE_ID", config.elevenLabsVoiceId],
+  ].filter(([, value]) => !value).map(([name]) => name);
+  if (missing.length) throw new Error(`Provider configuration needs ${missing.join(" and ")}. Add them to the local .env file.`);
+  if (!/^[A-Za-z0-9_-]{5,128}$/u.test(config.elevenLabsVoiceId)) {
+    throw new Error("ELEVENLABS_VOICE_ID must be a valid voice ID.");
+  }
+  if (!["eleven_v3", "eleven_v4"].includes(config.elevenLabsTtsModel)) {
+    throw new Error("ELEVENLABS_TTS_MODEL must be 'eleven_v3' or 'eleven_v4' to support Malayalam.");
   }
   return Object.freeze(config);
 }

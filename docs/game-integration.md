@@ -25,10 +25,10 @@ npm run build:native
 The generated file is `native/build/MalayalamNpcBootstrap.asi`. Start the backend before launching the game:
 
 ```powershell
-npm run start:live
+npm start
 ```
 
-The backend writes its bridge token under the current user's local application data. Keep `.env`, the token, database, logs, and temporary audio outside the game folder and repository. `UI_PORT` can change the port; the ASI reads it from the token file. The backend's current mock mode also works for typed in-game replies without paid provider calls.
+The backend writes its bridge token under the current user's local application data. Keep `.env`, the token, database, logs, and temporary audio outside the game folder and repository. `UI_PORT` can change the port; the ASI reads it from the token file. In-game replies use OpenAI and ElevenLabs and require the provider credentials in `.env`.
 
 The current game root contains the project-built `MalayalamNpcBootstrap.asi` (214,016 bytes) and the already-present official x86 `dinput8.dll` loader. The prior project ASI (120,832 bytes) was replaced at that exact path; no other game file was changed. An earlier write attempt was rejected by desktop policy, but the later direct copy of the named project ASI succeeded. The loader already existed and matched the official per-file archive; it was not copied or replaced. The executable remains unidentified, so the ASI's automatic proximity path stays disabled and the game has not been launched.
 
@@ -43,4 +43,4 @@ The current game root contains the project-built `MalayalamNpcBootstrap.asi` (21
 
 `npm run check` passed and `npm run build:native` produced a 214,016-byte x86 ASI. The current game executable does not pass the automatic-proximity compatibility check. No bridge round trip, ASI loader startup, game launch, overlay rendering, subtitle shaping, audio playback, microphone interaction, or in-game key behavior has been validated. Do not describe the mod as working in-game until those checks pass on a recognized executable.
 
-Before a compatible in-game demo, verify the exact executable hash and loader, then validate startup/shutdown, nearby-ped selection, leaving range, cancellation, a mock reply, subtitles/audio, and a live reply. Never use model output as a game command. For removal, close the game and remove only this project's manifest-listed files; do not remove saves, other plugins, or existing proxy DLLs.
+Before a compatible in-game demo, verify the exact executable hash and loader, then validate startup/shutdown, nearby-ped selection, leaving range, cancellation, a live reply, subtitles/audio, and provider failure handling. Never use model output as a game command. For removal, close the game and remove only this project's manifest-listed files; do not remove saves, other plugins, or existing proxy DLLs.
