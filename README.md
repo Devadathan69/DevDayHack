@@ -30,7 +30,7 @@ Type Malayalam into the prompt. Ask `മുമ്പ് ഞാൻ എന്ത�
 
 ## Open the NPC admin dashboard
 
-Open `admin/index.html` in a modern browser. The editor lets you customize Manu's traits, dialogue settings, and behavior profile, and updates the mock conversation preview as you edit. Drafts are saved in that browser's local storage. Use **Export profile** to download a JSON profile; this does not update the backend profile or connect the settings to GTA. The dashboard uses Google Fonts when network access is available and falls back to system fonts offline.
+Open `admin/index.html` in a modern browser. The editor supports an NPC roster (create, duplicate, import, export, and delete), local drafts, versioned publish snapshots with restore, behavior presets, and a local scenario playground that responds to trait settings. Voice and delivery preferences are saved in a profile, but playback remains unavailable until a voice backend is connected. Profiles and versions are stored in that browser only; publishing does not update the backend or activate a profile in GTA. The dashboard uses Google Fonts when network access is available and falls back to system fonts offline.
 
 Run a JavaScript syntax check with:
 

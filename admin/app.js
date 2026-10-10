@@ -1,4 +1,5 @@
-const STORAGE_KEY = "narrative-lab:demo-npc-001";
+const STORAGE_KEY = "narrative-lab:profiles:v2";
+const LEGACY_KEY = "narrative-lab:demo-npc-001";
 const defaults = {
   id: "demo-npc-001", displayName: "Manu",
   personality: "Friendly, curious, and mildly sarcastic. Keep the humor warm.",
@@ -6,142 +7,249 @@ const defaults = {
   language: "ml", voiceRef: "mock-malayalam", memoryPolicy: "private",
   traits: { warmth: 78, curiosity: 66, humor: 54, confidence: 62 },
   dialogue: { replyLength: "balanced", language: "ml", creativity: 42, focus: 72, boundary: "Keep it friendly. Never claim to control the game or know things outside this conversation." },
-  behavior: { greeting: "familiar", ambient: "occasional", memoryEnabled: true, sceneAware: true, teasing: true }
+  behavior: { greeting: "familiar", ambient: "occasional", memoryEnabled: true, sceneAware: true, teasing: true },
+  voice: { preset: "mock-malayalam", mood: "natural", speed: 100 }
 };
-let toastTimer;
-let previewIndex = 0;
-const replies = [
-  { ml: "നാട്ടിൽ എല്ലാം പതിവുപോലെ തന്നെ! പക്ഷേ നല്ലൊരു പലഹാരം എവിടെയെന്ന് ചോദിച്ചാൽ, അതിൽ എനിക്ക് ചില നിർദേശങ്ങളുണ്ട്.", en: "“Around here, all’s as usual! But if you’re asking where to find a good snack, I have a few suggestions.”" },
-  { ml: "ഇവിടെ പുതിയൊന്നുമില്ലെന്ന് പറയാനായിരുന്നു... പിന്നെ ഓർത്തു, ചായക്കടയിലെ പഴംപൊരി ഇന്ന് നേരത്തേ തീർന്നു!", en: "“I was going to say nothing new... then I remembered the banana fritters sold out early today!”" },
-  { ml: "വിശേഷം ഉണ്ടാക്കണോ? ആദ്യം ഒരു ചായ, പിന്നെ നല്ലൊരു കഥ. രണ്ടും ഇവിടെ അടുത്തുതന്നെയുണ്ട്.", en: "“Want some excitement? First tea, then a good story. Both are just around the corner.”" }
-];
+const presets = {
+  welcoming: { label: "Welcoming local", traits: { warmth: 88, curiosity: 62, humor: 48, confidence: 68 }, behavior: { greeting: "familiar", ambient: "occasional", memoryEnabled: true, sceneAware: true, teasing: true } },
+  curious: { label: "Curious stranger", traits: { warmth: 58, curiosity: 90, humor: 45, confidence: 52 }, behavior: { greeting: "curious", ambient: "occasional", memoryEnabled: true, sceneAware: true, teasing: false } },
+  reserved: { label: "Reserved observer", traits: { warmth: 38, curiosity: 45, humor: 25, confidence: 58 }, behavior: { greeting: "reserved", ambient: "rare", memoryEnabled: true, sceneAware: false, teasing: false } }
+};
+const scenarios = {
+  greeting: { prompt: "ഇന്ന് ഇവിടെ എന്താ വിശേഷം?", reply: (p) => p.traits.warmth > 65 ? "നാട്ടിൽ എല്ലാം പതിവുപോലെ തന്നെ! പക്ഷേ നിങ്ങളെ കണ്ടതോടെ ദിവസം കുറച്ച് കൂടി നന്നായി." : "ഇവിടെ കാര്യങ്ങൾ പതിവുപോലെ. നിങ്ങൾക്ക് എന്താണ് അറിയേണ്ടത്?", translation: "“All’s as usual around here! Though seeing you made the day a little better.”" },
+  snack: { prompt: "നല്ലൊരു പലഹാരം എവിടെ കിട്ടും?", reply: (p) => p.traits.humor > 60 ? "അത് ചോദിക്കാൻ ശരിയായ ആളെ തന്നെയാണ് കണ്ടത്! ചായക്കടയിലെ പഴംപൊരി നോക്കൂ — ഒന്ന് കഴിച്ചാൽ രണ്ടാമത്തേത് ഉറപ്പ്." : "ചായക്കടയിൽ ചോദിച്ചു നോക്കൂ. അവിടത്തെ പഴംപൊരി നല്ലതാണ്, എനിക്ക് തോന്നുന്നു.", translation: "“You’ve asked the right person! Try the banana fritters at the tea shop — one usually turns into two.”" },
+  stranger: { prompt: "ഹായ്, ഒന്ന് സംസാരിക്കാമോ?", reply: (p) => p.behavior.greeting === "reserved" ? "ഹായ്. പറയൂ, ഞാൻ കേൾക്കുന്നുണ്ട്." : "തീർച്ചയായും! ഒരു നല്ല സംഭാഷണത്തിന് എപ്പോഴും സമയമുണ്ട്.", translation: "“Hi. Sure, I’m listening.”" }
+};
 const $ = (id) => document.getElementById(id);
+let profiles = [];
+let selectedId = defaults.id;
+let toastTimer;
+let storageAvailable = true;
+
+function deepCopy(value) { return JSON.parse(JSON.stringify(value)); }
+function newProfile(data = defaults, versions = [], activeVersion = null) { return { data: deepCopy(data), versions: deepCopy(versions), activeVersion }; }
+function current() { return profiles.find((item) => item.data.id === selectedId) ?? profiles[0]; }
+function slug(value) { return value.toLocaleLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 45) || "npc"; }
+function uniqueId(base) { const id = slug(base); let candidate = id; let number = 2; while (profiles.some((item) => item.data.id === candidate)) candidate = `${id}-${number++}`; return candidate; }
+function profileDataOnly(data) { return { id: data.id, displayName: data.displayName, personality: data.personality, originalBackstory: data.originalBackstory, language: data.language, voiceRef: data.voiceRef, memoryPolicy: data.memoryPolicy, traits: deepCopy(data.traits), dialogue: deepCopy(data.dialogue), behavior: deepCopy(data.behavior), voice: deepCopy(data.voice ?? defaults.voice) }; }
 
 function readForm() {
+  const base = current()?.data ?? defaults;
+  const traits = Object.fromEntries(["warmth", "curiosity", "humor", "confidence"].map((key) => [key, Number($(key).value)]));
+  const personality = `Friendly, ${traits.curiosity >= 60 ? "curious" : "observant"}, and ${traits.humor >= 60 ? "playful" : "mildly sarcastic"}. Keep the humor warm.`;
   return {
-    ...defaults,
-    displayName: $("nameInput").value.trim() || defaults.displayName,
-    originalBackstory: $("backstoryInput").value.trim(),
-    traits: Object.fromEntries(["warmth", "curiosity", "humor", "confidence"].map((key) => [key, Number($(key).value)])),
-    dialogue: {
-      replyLength: $("replyLength").value, language: $("language").value,
-      creativity: Number($("creativity").value), focus: Number($("focus").value),
-      boundary: $("boundary").value.trim()
-    },
-    behavior: {
-      greeting: $("greeting").value, ambient: $("ambient").value,
-      memoryEnabled: $("memoryEnabled").checked, sceneAware: $("sceneAware").checked,
-      teasing: $("teasing").checked
-    }
+    ...profileDataOnly(base), displayName: $("nameInput").value.trim(), personality,
+    originalBackstory: $("backstoryInput").value.trim(), traits,
+    dialogue: { replyLength: $("replyLength").value, language: $("language").value, creativity: Number($("creativity").value), focus: Number($("focus").value), boundary: $("boundary").value.trim() },
+    behavior: { greeting: $("greeting").value, ambient: $("ambient").value, memoryEnabled: $("memoryEnabled").checked, sceneAware: $("sceneAware").checked, teasing: $("teasing").checked },
+    voice: { preset: $("voicePreset").value, mood: $("voiceMood").value, speed: Number($("voiceSpeed").value) },
+    voiceRef: $("voicePreset").value
   };
 }
 
 function setRange(range) {
   const value = Number(range.value);
-  range.style.setProperty("--fill", `${value}%`);
-  $(`${range.id}Value`).value = value;
-  $(`${range.id}Value`).textContent = value;
+  const min = Number(range.min || 0); const max = Number(range.max || 100);
+  range.style.setProperty("--fill", `${((value - min) / (max - min)) * 100}%`);
+  const output = $(`${range.id}Value`);
+  if (output) { output.value = value; output.textContent = range.id === "voiceSpeed" ? `${value}%` : value; }
 }
 
 function snapshot(profile) {
   const { warmth, humor, curiosity } = profile.traits;
   const lead = warmth >= 65 ? "Warm" : warmth <= 35 ? "A little reserved" : "Easygoing";
   const edge = humor >= 65 ? "playful" : humor <= 30 ? "thoughtful" : "witty";
-  const description = curiosity >= 65
-    ? "A welcoming conversationalist who likes to ask questions and keep things light."
-    : "A " + (warmth >= 60 ? "welcoming" : "measured") + " conversationalist who listens before jumping in.";
   $("snapshotTitle").textContent = `${lead} with a ${edge} edge`;
-  $("snapshotDescription").textContent = description;
+  $("snapshotDescription").textContent = curiosity >= 65 ? "A welcoming conversationalist who likes to ask questions and keep things light." : "A " + (warmth >= 60 ? "welcoming" : "measured") + " conversationalist who listens before jumping in.";
+}
+
+function renderRoster() {
+  const select = $("npcSelect");
+  select.replaceChildren(...profiles.map(({ data }) => {
+    const option = document.createElement("option"); option.value = data.id; option.textContent = `${data.displayName} · ${data.id}`; return option;
+  }));
+  select.value = selectedId;
+  $("rosterCount").textContent = String(profiles.length).padStart(2, "0");
+}
+
+function isPublished(profile) {
+  const item = profiles.find((entry) => entry.data.id === profile.id);
+  const active = item?.versions?.find((entry) => entry.number === item.activeVersion)?.profile;
+  return Boolean(active && JSON.stringify(profileDataOnly(active)) === JSON.stringify(profileDataOnly(profile)));
+}
+
+function renderVersions() {
+  const item = current(); const versions = item?.versions ?? [];
+  $("versionCount").textContent = String(versions.length).padStart(2, "0");
+  const list = $("versionList"); list.replaceChildren();
+  if (!versions.length) {
+    const empty = document.createElement("p"); empty.className = "empty-versions"; empty.textContent = "Publish this profile to create its first version."; list.append(empty); return;
+  }
+  versions.slice(0, 5).forEach((version) => {
+    const row = document.createElement("div"); row.className = "version-row";
+    const copy = document.createElement("div"); copy.className = "version-copy";
+    const title = document.createElement("strong"); title.textContent = `Version ${version.number}${version.number === versions[0].number ? " · Latest" : ""}`;
+    const date = document.createElement("small"); date.textContent = new Date(version.publishedAt).toLocaleString();
+    copy.append(title, date);
+    const restore = document.createElement("button"); restore.type = "button"; restore.textContent = "Restore"; restore.dataset.restoreVersion = String(version.number); row.append(copy, restore); list.append(row);
+  });
 }
 
 function render() {
-  const profile = readForm();
-  $("profileName").textContent = profile.displayName;
-  $("previewName").textContent = profile.displayName;
-  $("previewName2").textContent = profile.displayName;
-  $("messageNpcName").textContent = profile.displayName.toLocaleUpperCase();
-  $("profileDescription").textContent = profile.originalBackstory;
+  if (!profiles.length) return;
+  const profile = readForm(); const saved = current().data;
+  $("profileName").textContent = profile.displayName || "Unnamed NPC";
+  $("breadcrumbName").textContent = profile.displayName || "Unnamed NPC";
+  $("previewName").textContent = profile.displayName || "Unnamed NPC";
+  $("previewName2").textContent = profile.displayName || "Unnamed NPC";
+  $("portraitInitial").textContent = (profile.displayName || "N").trim().charAt(0).toLocaleUpperCase();
+  $("previewAvatarInitial").textContent = (profile.displayName || "N").trim().charAt(0).toLocaleUpperCase();
+  $("messageNpcName").textContent = (profile.displayName || "NPC").toLocaleUpperCase();
+  $("profileDescription").textContent = profile.originalBackstory || "Add a backstory to make this character feel real.";
+  $("profileId").textContent = saved.id;
   $("responseStyle").textContent = profile.dialogue.replyLength[0].toLocaleUpperCase() + profile.dialogue.replyLength.slice(1);
-  $("translation").hidden = profile.dialogue.language === "ml";
-  $("completeness").textContent = `${Math.min(100, 70 + Math.round((profile.originalBackstory.length > 50) * 8) + Math.round(profile.dialogue.boundary.length > 25 ? 6 : 0))}%`;
-  $("completenessBar").style.width = $("completeness").textContent;
+  $("translation").hidden = false;
+  const completeness = Math.min(100, 60 + Math.round(profile.originalBackstory.length > 50) * 12 + Math.round(profile.dialogue.boundary.length > 25) * 10 + Math.round(profile.displayName.length > 1) * 10);
+  $("completeness").textContent = `${completeness}%`; $("completenessBar").style.width = `${completeness}%`;
+  const published = isPublished(profile);
+  $("statePill").innerHTML = `<i></i> ${published ? "PUBLISHED" : "DRAFT"}`;
+  $("publishButton").disabled = published;
+  $("saveStatus").textContent = storageAvailable ? (published ? "Published snapshot · saved locally" : "Draft saved in this browser") : "Browser storage unavailable";
+  $("updatedAt").textContent = saved.updatedAt ? `◷ Edited ${new Date(saved.updatedAt).toLocaleString()}` : "◷ Draft saved locally";
   document.querySelectorAll(".trait-range").forEach(setRange);
-  snapshot(profile);
+  snapshot(profile); renderRoster(); renderVersions();
 }
 
 function persist() {
-  const profile = readForm();
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(profile));
-    $("saveStatus").textContent = "Saved in this browser";
-  } catch {
-    $("saveStatus").textContent = "Could not save draft";
-  }
-  render();
+  const data = readForm();
+  current().data = { ...data, updatedAt: new Date().toISOString() };
+  current().activeVersion = null;
+  saveAll(); render();
+}
+
+function saveAll() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ profiles, selectedId })); storageAvailable = true; }
+  catch { storageAvailable = false; }
 }
 
 function hydrate(profile) {
-  $("nameInput").value = profile.displayName ?? defaults.displayName;
-  $("backstoryInput").value = profile.originalBackstory ?? defaults.originalBackstory;
-  for (const key of Object.keys(defaults.traits)) $(key).value = profile.traits?.[key] ?? defaults.traits[key];
-  for (const key of ["replyLength", "language", "creativity", "focus", "boundary"]) {
-    const value = profile.dialogue?.[key] ?? defaults.dialogue[key];
-    if ($(key)) $(key).value = value;
-  }
-  for (const key of Object.keys(defaults.behavior)) {
-    if ($(key).type === "checkbox") $(key).checked = profile.behavior?.[key] ?? defaults.behavior[key];
-    else $(key).value = profile.behavior?.[key] ?? defaults.behavior[key];
-  }
+  const normalized = { ...deepCopy(defaults), ...deepCopy(profile), traits: { ...defaults.traits, ...(profile.traits ?? {}) }, dialogue: { ...defaults.dialogue, ...(profile.dialogue ?? {}) }, behavior: { ...defaults.behavior, ...(profile.behavior ?? {}) }, voice: { ...defaults.voice, ...(profile.voice ?? {}) } };
+  $("nameInput").value = normalized.displayName;
+  $("backstoryInput").value = normalized.originalBackstory;
+  $("idInput").value = normalized.id;
+  for (const key of Object.keys(defaults.traits)) $(key).value = normalized.traits[key];
+  for (const key of ["replyLength", "language", "creativity", "focus", "boundary"]) $(key).value = normalized.dialogue[key];
+  for (const key of Object.keys(defaults.behavior)) $(key).type === "checkbox" ? $(key).checked = normalized.behavior[key] : $(key).value = normalized.behavior[key];
+  $("voicePreset").value = normalized.voice.preset; $("voiceMood").value = normalized.voice.mood; $("voiceSpeed").value = normalized.voice.speed;
   render();
 }
 
 function showToast(message) {
-  const toast = $("toast");
-  toast.textContent = message;
-  toast.classList.add("show");
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toast.classList.remove("show"), 2200);
+  const toast = $("toast"); toast.textContent = message; toast.classList.add("show");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => toast.classList.remove("show"), 2400);
 }
 
-function downloadProfile() {
-  const profile = readForm();
-  const exportProfile = {
-    id: profile.id, displayName: profile.displayName,
-    personality: `Friendly, ${profile.traits.curiosity >= 60 ? "curious" : "observant"}, and ${profile.traits.humor >= 60 ? "playful" : "mildly sarcastic"}. Keep the humor warm.`,
-    originalBackstory: profile.originalBackstory, language: "ml", voiceRef: "mock-malayalam", memoryPolicy: "private",
-    traits: profile.traits, dialogue: profile.dialogue, behavior: profile.behavior
-  };
-  const blob = new Blob([`${JSON.stringify(exportProfile, null, 2)}\n`], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `${profile.id}.json`;
-  link.click();
-  URL.revokeObjectURL(url);
+function downloadProfile(profile = readForm()) {
+  const blob = new Blob([`${JSON.stringify(profileDataOnly(profile), null, 2)}\n`], { type: "application/json" });
+  const url = URL.createObjectURL(blob); const link = document.createElement("a");
+  link.href = url; link.download = `${profile.id}.json`; link.click(); URL.revokeObjectURL(url);
   showToast("Profile exported as JSON");
 }
 
-document.querySelectorAll("input, textarea, select").forEach((control) => {
-  control.addEventListener("input", persist);
-  control.addEventListener("change", persist);
+function validateProfile(profile) {
+  if (!profile || typeof profile !== "object" || typeof profile.displayName !== "string" || !profile.displayName.trim() || profile.displayName.length > 80) throw new Error("Profile needs a name (1–80 characters).");
+  if (typeof profile.originalBackstory !== "string" || profile.originalBackstory.length > 1000) throw new Error("Backstory must be 1,000 characters or fewer.");
+  if (profile.traits && Object.values(profile.traits).some((value) => !Number.isFinite(value) || value < 0 || value > 100)) throw new Error("Trait values must be between 0 and 100.");
+}
+
+function publish() {
+  const profile = readForm();
+  try { validateProfile(profile); } catch (error) { showToast(error.message); return; }
+  const item = current(); const number = (item.versions[0]?.number ?? 0) + 1;
+  item.data = { ...profile, updatedAt: new Date().toISOString() };
+  item.versions.unshift({ number, publishedAt: new Date().toISOString(), profile: profileDataOnly(profile) });
+  item.activeVersion = number;
+  item.versions = item.versions.slice(0, 20); saveAll(); render(); showToast(`Published local snapshot · v${number}`);
+}
+
+function makeProfile(name, source = defaults) {
+  const profile = profileDataOnly(source); profile.id = uniqueId(name); profile.displayName = name; return newProfile(profile);
+}
+
+function scenarioReply() {
+  const profile = readForm(); const selected = scenarios[$("scenarioSelect").value] ?? scenarios.greeting;
+  $("scenarioPrompt").textContent = selected.prompt;
+  const variant = selected.reply(profile);
+  const languageMix = profile.dialogue.language === "ml-en" && profile.traits.curiosity > 60 ? " By the way, have you tried asking the tea shop owner?" : "";
+  $("previewReply").textContent = `${variant}${languageMix}`;
+  $("translation").textContent = selected.translation;
+  $("translation").hidden = false;
+}
+
+function applyPreset(key) {
+  if (key === "custom") { $("presetNote").textContent = "Your current settings are custom."; return; }
+  const preset = presets[key]; if (!preset) return;
+  for (const [trait, value] of Object.entries(preset.traits)) $(trait).value = value;
+  for (const [setting, value] of Object.entries(preset.behavior)) $(setting).type === "checkbox" ? $(setting).checked = value : $(setting).value = value;
+  $("presetNote").textContent = `Applied ${preset.label}. Tweak any setting to make it yours.`;
+  persist(); showToast(`${preset.label} preset applied`);
+}
+
+function restoreVersion(number) {
+  const version = current().versions.find((entry) => entry.number === number); if (!version) return;
+  current().data = { ...deepCopy(version.profile), updatedAt: new Date().toISOString() };
+  current().activeVersion = null;
+  saveAll(); hydrate(current().data); showToast(`Restored version ${number} as a draft`);
+}
+
+function init() {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      const state = JSON.parse(stored); profiles = (state.profiles ?? []).filter((item) => item?.data?.id).map((item) => ({ data: { ...deepCopy(defaults), ...item.data }, versions: item.versions ?? [], activeVersion: item.activeVersion ?? null })); selectedId = state.selectedId;
+    }
+    if (!profiles.length) {
+      let initial = deepCopy(defaults);
+      const legacy = localStorage.getItem(LEGACY_KEY); if (legacy) initial = { ...initial, ...JSON.parse(legacy) };
+      profiles = [newProfile(initial)]; selectedId = initial.id; saveAll();
+    }
+  } catch { profiles = [newProfile(defaults)]; selectedId = defaults.id; storageAvailable = false; }
+  if (!profiles.some((item) => item.data.id === selectedId)) selectedId = profiles[0].data.id;
+  renderRoster(); hydrate(current().data);
+}
+
+document.querySelectorAll(".editor-column input:not([disabled]), .editor-column textarea, .editor-column select").forEach((control) => {
+  control.addEventListener("input", persist); control.addEventListener("change", persist);
 });
-$("exportButton").addEventListener("click", downloadProfile);
+$("npcSelect").addEventListener("change", () => { selectedId = $("npcSelect").value; saveAll(); hydrate(current().data); $("behaviorPreset").value = "custom"; });
+$("newNpcButton").addEventListener("click", () => {
+  const name = window.prompt("Name this NPC:", "New NPC"); if (!name?.trim()) return;
+  const item = makeProfile(name.trim()); profiles.push(item); selectedId = item.data.id; saveAll(); hydrate(item.data); showToast("NPC profile created");
+});
+$("duplicateNpcButton").addEventListener("click", () => {
+  const item = makeProfile(`${current().data.displayName} copy`, readForm()); profiles.push(item); selectedId = item.data.id; saveAll(); hydrate(item.data); showToast("NPC profile duplicated");
+});
+$("deleteNpcButton").addEventListener("click", () => {
+  if (profiles.length < 2) { showToast("Keep at least one NPC profile"); return; }
+  const name = current().data.displayName; if (!window.confirm(`Delete ${name} and its local version history?`)) return;
+  profiles = profiles.filter((item) => item.data.id !== selectedId); selectedId = profiles[0].data.id; saveAll(); hydrate(current().data); showToast(`${name} deleted`);
+});
+$("exportButton").addEventListener("click", () => downloadProfile());
+$("publishButton").addEventListener("click", publish);
 $("resetButton").addEventListener("click", () => {
-  hydrate(defaults);
-  localStorage.removeItem(STORAGE_KEY);
-  $("saveStatus").textContent = "Default profile restored";
-  showToast("Restored the default profile");
+  const id = current().data.id; const profile = { ...deepCopy(defaults), id, displayName: id === defaults.id ? defaults.displayName : current().data.displayName };
+  current().data = profile; current().activeVersion = null; $("behaviorPreset").value = "custom"; saveAll(); hydrate(profile); showToast("Restored default settings as a draft");
 });
-$("refreshPreview").addEventListener("click", () => {
-  previewIndex = (previewIndex + 1) % replies.length;
-  $("previewReply").textContent = replies[previewIndex].ml;
-  $("translation").textContent = replies[previewIndex].en;
+$("behaviorPreset").addEventListener("change", () => applyPreset($("behaviorPreset").value));
+$("refreshPreview").addEventListener("click", scenarioReply);
+$("scenarioSelect").addEventListener("change", scenarioReply);
+$("versionList").addEventListener("click", (event) => { const button = event.target.closest("[data-restore-version]"); if (button) restoreVersion(Number(button.dataset.restoreVersion)); });
+$("importButton").addEventListener("click", () => $("importInput").click());
+$("importInput").addEventListener("change", async (event) => {
+  const file = event.target.files?.[0]; if (!file) return;
+  try { const imported = JSON.parse(await file.text()); validateProfile(imported); imported.id = profiles.some((item) => item.data.id === imported.id) ? uniqueId(imported.displayName) : slug(imported.id || imported.displayName); if (profiles.some((item) => item.data.id === imported.id)) imported.id = uniqueId(imported.displayName); const item = newProfile({ ...deepCopy(defaults), ...imported }); profiles.push(item); selectedId = item.data.id; saveAll(); hydrate(item.data); showToast("Profile imported as a new NPC"); }
+  catch (error) { showToast(`Import failed: ${error.message}`); }
+  event.target.value = "";
 });
 
-try {
-  const saved = localStorage.getItem(STORAGE_KEY);
-  hydrate(saved ? { ...defaults, ...JSON.parse(saved) } : defaults);
-} catch {
-  hydrate(defaults);
-  $("saveStatus").textContent = "Local storage unavailable";
-}
+init();

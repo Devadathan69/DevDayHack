@@ -9,6 +9,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./extras.css" />
     <script src="./app.js" defer></script>
   </head>
   <body>
@@ -20,10 +21,11 @@
         <div class="nav-label">STUDIO</div>
         <nav aria-label="Main navigation">
           <a class="nav-item" href="#overview"><span class="nav-icon">▦</span>Overview</a>
-          <a class="nav-item active" href="#personality"><span class="nav-icon">◉</span>NPC profiles<span class="nav-count">01</span></a>
+          <a class="nav-item active" href="#roster"><span class="nav-icon">◉</span>NPC profiles<span class="nav-count" id="rosterCount">01</span></a>
           <a class="nav-item" href="#dialogue"><span class="nav-icon">⌁</span>Dialogue lab</a>
           <a class="nav-item" href="#behavior"><span class="nav-icon">⌘</span>Behavior rules</a>
           <a class="nav-item" href="#preview"><span class="nav-icon">▷</span>Playground</a>
+          <a class="nav-item" href="#versions"><span class="nav-icon">◷</span>Versions</a>
         </nav>
         <div class="sidebar-bottom">
           <div class="storage-card"><div class="storage-top"><span class="online-dot"></span>LOCAL DRAFT</div><p>Your changes are saved in this browser.</p><div class="storage-bar"><span></span></div><small>Browser storage · private</small></div>
@@ -34,19 +36,21 @@
 
       <main id="top" class="main-content">
         <header class="topbar">
-          <div class="breadcrumbs"><span>NPC profiles</span><span class="crumb-slash">/</span><strong>Manu</strong><span class="draft-pill"><i></i> Draft</span></div>
+            <div class="breadcrumbs"><span>NPC profiles</span><span class="crumb-slash">/</span><strong id="breadcrumbName">Manu</strong><span class="draft-pill" id="statePill"><i></i> DRAFT</span></div>
           <div class="top-actions"><span class="saved-label" id="saveStatus">All changes saved</span><button class="icon-button" type="button" aria-label="Notifications">♧<i class="notification-dot"></i></button><button class="avatar-small" type="button" aria-label="Account">S</button></div>
         </header>
 
         <div class="page-wrap">
           <section class="page-heading" id="overview">
-            <div><div class="eyebrow"><span class="eyebrow-line"></span> CHARACTER CONFIGURATION</div><h1>Shape a <span>personality.</span></h1><p class="page-subtitle">Tune who Manu is, how he speaks, and how he moves through the world.</p></div>
-            <div class="heading-actions"><button class="button button-quiet" id="resetButton" type="button">↺ <span>Reset</span></button><button class="button button-primary" id="exportButton" type="button"><span>Export profile</span><span class="download-icon">↓</span></button></div>
+            <div><div class="eyebrow"><span class="eyebrow-line"></span> CHARACTER CONFIGURATION</div><h1>Shape a <span>personality.</span></h1><p class="page-subtitle">Tune who this NPC is, how they speak, and how they move through the world.</p></div>
+            <div class="heading-actions"><button class="button button-quiet" id="resetButton" type="button">↺ <span>Reset</span></button><button class="button button-quiet" id="importButton" type="button">↑ <span>Import</span></button><input id="importInput" type="file" accept="application/json,.json" hidden /><button class="button button-quiet" id="publishButton" type="button">✓ <span>Publish</span></button><button class="button button-primary" id="exportButton" type="button"><span>Export profile</span><span class="download-icon">↓</span></button></div>
           </section>
 
+          <section class="roster-toolbar" id="roster" aria-label="NPC roster controls"><div class="roster-select-wrap"><span class="roster-select-icon">◉</span><label for="npcSelect">SELECT NPC</label><select id="npcSelect" aria-label="Select NPC profile"></select><span class="roster-chevron">⌄</span></div><div class="roster-actions"><button class="roster-button" id="newNpcButton" type="button">＋ New NPC</button><button class="roster-button" id="duplicateNpcButton" type="button">▣ Duplicate</button><button class="roster-button danger-button" id="deleteNpcButton" type="button">× Delete</button></div></section>
+
           <section class="profile-strip" aria-label="Selected NPC profile">
-            <div class="portrait"><div class="portrait-halo"></div><span class="portrait-initial">M</span><span class="portrait-status"></span></div>
-            <div class="profile-identity"><div class="identity-line"><h2 id="profileName">Manu</h2><span class="tag tag-green"><i></i> ACTIVE</span><span class="tag tag-muted">MALAYALAM NPC</span></div><p id="profileDescription">A friendly local with a quick wit and a soft spot for snack recommendations.</p><div class="profile-meta"><span><b>●</b> <span id="profileId">demo-npc-001</span></span><span>◷ Updated just now</span><span>♙ Private memory</span></div></div>
+            <div class="portrait"><div class="portrait-halo"></div><span class="portrait-initial" id="portraitInitial">M</span><span class="portrait-status"></span></div>
+            <div class="profile-identity"><div class="identity-line"><h2 id="profileName">Manu</h2><span class="tag tag-green"><i></i> LOCAL PROFILE</span><span class="tag tag-muted">MALAYALAM NPC</span></div><p id="profileDescription">A friendly local with a quick wit and a soft spot for snack recommendations.</p><div class="profile-meta"><span><b>●</b> <span id="profileId">demo-npc-001</span></span><span id="updatedAt">◷ Draft saved locally</span><span>♙ Private memory</span></div></div>
             <div class="profile-stat"><span class="stat-label">PROFILE COMPLETENESS</span><div class="stat-value"><strong id="completeness">84%</strong><span class="mini-progress"><i id="completenessBar"></i></span></div><small>Looking good</small></div>
             <div class="profile-stat response-stat"><span class="stat-label">RESPONSE STYLE</span><div class="response-chip"><span>≈</span> <span id="responseStyle">Balanced</span></div><small>From your dialogue settings</small></div>
           </section>
@@ -80,8 +84,17 @@
                 <label class="field boundary-field"><span>CONVERSATION BOUNDARY</span><input id="boundary" maxlength="220" value="Keep it friendly. Never claim to control the game or know things outside this conversation." /><small>Clear guardrails make a more dependable character.</small></label>
               </section>
 
+              <section class="panel voice-panel" id="voice">
+                <div class="panel-heading"><div class="section-icon voice-icon">♫</div><div class="panel-title"><div class="section-kicker">03 — THE VOICE</div><h3>Voice & delivery</h3><p>Configure delivery preferences for the voice service.</p></div><span class="tag tag-muted">NOT CONNECTED</span></div>
+                <div class="voice-notice"><span>ⓘ</span><p>These are saved as profile preferences only. Voice selection and playback will work when the backend exposes its voice adapter.</p></div>
+                <div class="voice-grid"><label class="field"><span>VOICE PRESET</span><div class="select-wrap"><select id="voicePreset"><option value="mock-malayalam">Mock Malayalam</option><option value="warm-malayalam">Warm Malayalam (planned)</option><option value="bright-malayalam">Bright Malayalam (planned)</option></select><span>⌄</span></div></label><label class="field"><span>DELIVERY MOOD</span><div class="select-wrap"><select id="voiceMood"><option value="natural">Natural</option><option value="cheerful">Cheerful</option><option value="calm">Calm</option><option value="playful">Playful</option></select><span>⌄</span></div></label></div>
+                <div class="range-setting"><div class="setting-copy"><strong>Speaking pace</strong><small>Slower for clarity, faster for energy</small></div><input class="trait-range" id="voiceSpeed" type="range" min="70" max="130" value="100" /><output for="voiceSpeed" id="voiceSpeedValue">100</output></div>
+                <button class="voice-preview-button" id="voicePreviewButton" type="button" disabled>▶ <span>Voice preview unavailable until backend connection</span></button>
+              </section>
+
               <section class="panel behavior-panel" id="behavior">
-                <div class="panel-heading"><div class="section-icon blue-icon">⌘</div><div class="panel-title"><div class="section-kicker">03 — IN THE WORLD</div><h3>Behavior profile</h3><p>Choose how Manu shows up beyond his dialogue.</p></div><span class="tag tag-muted">PROFILE 01</span></div>
+                <div class="panel-heading"><div class="section-icon blue-icon">⌘</div><div class="panel-title"><div class="section-kicker">04 — IN THE WORLD</div><h3>Behavior profile</h3><p>Choose how this NPC shows up beyond dialogue.</p></div><span class="tag tag-muted">PROFILE</span></div>
+                <div class="preset-row"><label class="field"><span>START FROM A PRESET</span><div class="select-wrap"><select id="behaviorPreset"><option value="custom">Custom behavior</option><option value="welcoming">Welcoming local</option><option value="curious">Curious stranger</option><option value="reserved">Reserved observer</option></select><span>⌄</span></div></label><span class="preset-note" id="presetNote">Choose a preset to apply a starting point.</span></div>
                 <div class="behavior-grid">
                   <label class="field"><span>GREETING STYLE</span><div class="select-wrap"><select id="greeting"><option value="familiar">Warm & familiar</option><option value="curious">Curious opener</option><option value="reserved">Waits to be greeted</option></select><span>⌄</span></div></label>
                   <label class="field"><span>AMBIENT CHAT</span><div class="select-wrap"><select id="ambient"><option value="occasional">Occasional</option><option value="rare">Rare</option><option value="frequent">Frequent</option></select><span>⌄</span></div></label>
@@ -97,14 +110,15 @@
 
             <aside class="preview-column" id="preview">
               <section class="preview-card">
-                <div class="preview-top"><div><div class="section-kicker">LIVE PREVIEW</div><h3>Meet <span id="previewName">Manu</span></h3></div><span class="live-indicator"><i></i> READY</span></div>
+                <div class="preview-top"><div><div class="section-kicker">MOCK PLAYGROUND</div><h3>Meet <span id="previewName">Manu</span></h3></div><span class="live-indicator mock-indicator"><i></i> OFFLINE</span></div>
                 <div class="preview-scene"><div class="scene-grid"></div><div class="scene-sun"></div><div class="scene-building building-one"></div><div class="scene-building building-two"></div><div class="scene-road"></div><div class="scene-person"><div class="person-head"></div><div class="person-body"></div></div><div class="scene-caption"><span>SCENE 01</span><span>LOS SANTOS · AFTERNOON</span></div></div>
-                <div class="preview-profile"><div class="preview-avatar">M</div><div><strong id="previewName2">Manu</strong><small><i></i> Ready to chat · Malayalam</small></div><button class="sound-button" type="button" aria-label="Voice is mock">⌁</button></div>
-                <div class="chat-preview"><div class="chat-time">A MOMENT AGO</div><div class="message player-message"><span class="message-label">YOU</span><p>ഇന്ന് ഇവിടെ എന്താ വിശേഷം?</p></div><div class="message npc-message"><span class="message-label"><i></i> <span id="messageNpcName">MANU</span> · MOCK</span><p id="previewReply">നാട്ടിൽ എല്ലാം പതിവുപോലെ തന്നെ! പക്ഷേ നല്ലൊരു പലഹാരം എവിടെയെന്ന് ചോദിച്ചാൽ, അതിൽ എനിക്ക് ചില നിർദേശങ്ങളുണ്ട്.</p><span class="message-translation" id="translation">“Around here, all’s as usual! But if you’re asking where to find a good snack, I have a few suggestions.”</span></div><div class="preview-footnote"><span>✳</span> Preview changes as you tune the personality</div></div>
-                <div class="preview-controls"><button id="refreshPreview" type="button">↻ <span>Try another reply</span></button><span>MOCK PREVIEW</span></div>
+                <div class="preview-profile"><div class="preview-avatar" id="previewAvatarInitial">M</div><div><strong id="previewName2">Manu</strong><small><i></i> Ready to chat · Malayalam</small></div><button class="sound-button" type="button" aria-label="Voice is mock">⌁</button></div>
+                <div class="chat-preview"><div class="scenario-row"><label for="scenarioSelect">SCENARIO</label><select id="scenarioSelect"><option value="greeting">Friendly greeting</option><option value="snack">Ask for a snack tip</option><option value="stranger">A stranger approaches</option></select></div><div class="message player-message"><span class="message-label">PLAYER</span><p id="scenarioPrompt">ഇന്ന് ഇവിടെ എന്താ വിശേഷം?</p></div><div class="message npc-message"><span class="message-label"><i></i> <span id="messageNpcName">MANU</span> · SIMULATED</span><p id="previewReply">നാട്ടിൽ എല്ലാം പതിവുപോലെ തന്നെ! പക്ഷേ നല്ലൊരു പലഹാരം എവിടെയെന്ന് ചോദിച്ചാൽ, അതിൽ എനിക്ക് ചില നിർദേശങ്ങളുണ്ട്.</p><span class="message-translation" id="translation">“Around here, all’s as usual! But if you’re asking where to find a good snack, I have a few suggestions.”</span></div><div class="preview-footnote"><span>✳</span> Simulated locally from a sample response. Not generated by your backend.</div></div>
+                <div class="preview-controls"><button id="refreshPreview" type="button">↻ <span>Simulate scenario</span></button><span>LOCAL SIMULATION</span></div>
               </section>
               <section class="insight-card"><div class="insight-orb">✳</div><div><div class="section-kicker">PERSONALITY SNAPSHOT</div><h4 id="snapshotTitle">Warm with a witty edge</h4><p id="snapshotDescription">A welcoming conversationalist who likes to ask questions and keep things light.</p></div></section>
               <div class="privacy-caption"><span>▣</span><span>Draft stays in this browser until you export it.<br /><a href="#behavior">Review memory settings →</a></span></div>
+              <section class="versions-card" id="versions"><div class="versions-heading"><div><div class="section-kicker">PROFILE HISTORY</div><h4>Published versions</h4></div><span class="version-count" id="versionCount">0</span></div><div id="versionList" class="version-list"><p class="empty-versions">Publish this profile to create its first version.</p></div><p class="version-footnote">Publishing stores a local snapshot. It does not activate the profile in-game.</p></section>
             </aside>
           </div>
           <footer class="page-footer"><span>NPC STUDIO <i>·</i> PROFILE EDITOR</span><span>Changes apply to exported profile <b>↗</b></span></footer>

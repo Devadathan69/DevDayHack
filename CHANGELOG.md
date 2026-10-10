@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-11T00:40:33+05:30 — Expand dashboard profile workflows
+
+- Changed: Added local multi-NPC roster management, profile import, publish/version snapshots and restore, behavior presets, scenario-based mock simulation, and stored voice delivery preferences. Voice playback is explicitly unavailable until a backend adapter is connected.
+- Why: Give the team an admin control surface while backend and voice services are under active development.
+- Validation: `npm run check` and `git diff --check` passed.
+- Limitations: Profiles and history remain browser-local. Simulation is deterministic sample output; publishing does not call the backend or activate an in-game profile.
+
 ## 2026-10-10T22:33:29+05:30 — Add NPC personality admin dashboard
 
 - Changed: Added a responsive browser-based profile editor with trait and dialogue controls, behavior settings, live mock preview, browser-local drafts, reset, and JSON export. Updated the README and syntax-check command.
