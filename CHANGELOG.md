@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-10T23:26:00+05:30 — Record executable compatibility fingerprint
+
+- Changed: Added the PE timestamp and entry-point fingerprint to `docs/game-integration.md`, including the adjacent installer-script version clue and the comparison against Plugin-SDK's official game-version detector.
+- Why: User asked to select the closest target and try game integration; the executable's own version resource is blank, so the target must be checked against known signatures before adding gameplay hooks.
+- Validation: Read the executable and `installscript.vdf` without modifying them; parsed x86 PE headers; compared the normalized entry-point value with the Plugin-SDK detector source; `git diff --check` passed.
+- Limitations: The executable entry point matches none of the detector's listed San Andreas builds. No target was selected, no gameplay integration was attempted against an unknown binary, and the prior game-folder write was blocked by desktop policy. No game files were changed.
+
 ## 2026-10-10T23:02:18+05:30 — Add runnable voice companion and persistent memory
 
 - Changed: Added a localhost browser companion, OpenAI Responses and ElevenLabs Scribe v2/Eleven v4 adapters, bounded PTT capture and turn handling, subtitle/audio delivery controls, local SQLite memory with scope isolation/reset, configuration/doctor commands, and deterministic adapter/storage checks. Updated README, integration guide, implementation status, submission notes, and AI usage record.
