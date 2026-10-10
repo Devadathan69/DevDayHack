@@ -8,6 +8,7 @@ import { NpcRegistry } from "./npc-registry.js";
 import { SessionManager } from "./session-manager.js";
 import { createLiveProviders } from "./providers/live-providers.js";
 import { SqliteMemoryStore } from "./memory/sqlite-memory-store.js";
+import { createPedestrianProfile, pedestrianProfileId, validateBridgeSelection } from "./pedestrian-profiles.js";
 
 export function createNpcServer({ config, profile, memory, providers = createLiveProviders(config) }) {
   const registry = new NpcRegistry([profile], { ...providers, memory });
@@ -50,7 +51,7 @@ export function createNpcServer({ config, profile, memory, providers = createLiv
   function isBridgeRoute(request, pathname) {
     if (request.method === "GET" && pathname === "/api/status") return true;
     if (request.method === "GET" && /^\/api\/audio\/[0-9a-f-]{36}$/iu.test(pathname)) return true;
-    return request.method === "POST" && ["/api/select", "/api/text-turn", "/api/delivery", "/api/cancel", "/api/deselect"].includes(pathname);
+    return request.method === "POST" && ["/api/select", "/api/turn", "/api/text-turn", "/api/delivery", "/api/cancel", "/api/deselect"].includes(pathname);
   }
 
   function isBridgeAuthenticated(request, pathname) {
@@ -132,8 +133,8 @@ export function createNpcServer({ config, profile, memory, providers = createLiv
   }
 
   async function runTurn(request, audioInput, response) {
-    if (manager.state !== "SELECTED") throw new Error("Select Manu first with F6 or the Select Manu button.");
-    if (liveTurns >= config.liveTurnLimit) {
+    if (manager.state !== "SELECTED") throw new Error("Select an NPC before starting a conversation.");
+    if (config.liveTurnLimit > 0 && liveTurns >= config.liveTurnLimit) {
       throw new Error(`This run reached its ${config.liveTurnLimit}-turn live API limit. Restart the local server to begin another demo session.`);
     }
     liveTurns += 1;
@@ -211,12 +212,13 @@ export function createNpcServer({ config, profile, memory, providers = createLiv
           state: manager.state,
           selected: manager.hasSelection,
           activeTurnId: manager.activeTurnId,
-          npc: { id: profile.id, name: profile.displayName },
+          npc: { id: (manager.selectedProfile ?? profile).id, name: (manager.selectedProfile ?? profile).displayName },
           gameConnected,
           gameMessage: gameConnected
             ? "The local ASI bridge is authenticated and responding."
             : "The local ASI bridge has not connected.",
-          liveTurnsRemaining: Math.max(0, config.liveTurnLimit - liveTurns),
+          liveTurnLimit: config.liveTurnLimit ?? 0,
+          liveTurnsRemaining: config.liveTurnLimit > 0 ? Math.max(0, config.liveTurnLimit - liveTurns) : null,
           audioLimitSeconds: config.maxAudioSeconds,
         });
         return;
@@ -242,19 +244,40 @@ export function createNpcServer({ config, profile, memory, providers = createLiv
         return;
       }
       if (request.method === "POST" && url.pathname === "/api/select") {
-        const body = bridgeAuthenticated ? await jsonBody(request) : {};
+        const body = bridgeAuthenticated ? validateBridgeSelection(await jsonBody(request)) : {};
         if (bridgeAuthenticated || !manager.hasSelection) {
           const previousTurnId = manager.activeTurnId;
           // Ped pool generations are meaningful only within their game process/session.
           const worldId = bridgeAuthenticated
             ? `native-${createHash("sha256").update(JSON.stringify([config.worldId, body.gameSessionId, body.sceneGeneration])).digest("hex")}`
             : config.worldId;
-          manager.selectNpc({ npcId: profile.id, worldId, playerId: config.playerId,
+          const profileScope = { worldId: config.worldId, gameSessionId: body.gameSessionId, sceneGeneration: body.sceneGeneration };
+          let scopedProfile = profile;
+          if (bridgeAuthenticated) {
+            const existing = registry.getProfile(pedestrianProfileId(profileScope));
+            if (body.pedestrian) {
+              const candidate = createPedestrianProfile(profile, profileScope, body.pedestrian, config);
+              if (existing && ["gender", "voiceRef", "displayName"].some((field) => existing[field] !== candidate[field])) {
+                if (manager.selectedConversationKey?.npcId === existing.id) {
+                  manager.cancel("NPC model/voice metadata changed; the previous reply was discarded.");
+                }
+                scopedProfile = registry.replaceProfile(candidate);
+              } else {
+                scopedProfile = existing ?? registry.registerProfile(candidate);
+              }
+            } else {
+              scopedProfile = existing ?? profile;
+            }
+          }
+          manager.selectNpc({ npcId: scopedProfile.id, worldId, playerId: config.playerId,
             gameSessionId: bridgeAuthenticated ? body.gameSessionId : `companion-${randomUUID()}`,
             sceneGeneration: bridgeAuthenticated ? body.sceneGeneration : 0 });
           if (previousTurnId && manager.activeTurnId !== previousTurnId) clearAudioForTurn(previousTurnId);
         }
-        sendJson(response, 200, { state: manager.state, npc: profile.displayName });
+        const selectedProfile = manager.selectedProfile;
+        sendJson(response, 200, { state: manager.state, npc: selectedProfile.displayName,
+          npcId: selectedProfile.id, displayName: selectedProfile.displayName,
+          gender: selectedProfile.gender ?? "unknown", personality: selectedProfile.personality });
         return;
       }
       if (request.method === "POST" && url.pathname === "/api/deselect") {
@@ -269,7 +292,7 @@ export function createNpcServer({ config, profile, memory, providers = createLiv
           return;
         }
         const bytes = await audioBody(request);
-        if (!bytes.length) throw new Error("The microphone recording is empty. Hold F7 while speaking, then release it.");
+        if (!bytes.length) throw new Error("The microphone recording is empty. Hold the push-to-talk key while speaking, then release it.");
         await runTurn(request, { bytes, mimeType: (request.headers["content-type"] ?? "audio/webm").split(";")[0] }, response);
         return;
       }

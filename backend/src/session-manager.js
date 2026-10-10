@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { assertNotAborted, isAbortError, validateConversationKey } from "./domain.js";
+import { assertNotAborted, isAbortError, validateConversationKey, validateGameScope } from "./domain.js";
 
 export class SessionManager {
   #selection = null;
@@ -20,6 +20,10 @@ export class SessionManager {
     return this.#selection !== null;
   }
 
+  get selectedProfile() {
+    return this.#selection ? this.registry.getProfile(this.#selection.npcId) : null;
+  }
+
   get selectedConversationKey() {
     if (!this.#selection) return null;
     const { worldId, playerId, npcId } = this.#selection;
@@ -30,9 +34,7 @@ export class SessionManager {
     const profile = this.registry.getProfile(npcId);
     if (!profile) throw new Error(`NPC '${npcId}' is not configured.`);
     const key = validateConversationKey({ worldId, playerId, npcId });
-    if (typeof gameSessionId !== "string" || gameSessionId.trim().length === 0 || gameSessionId.length > 128) throw new Error("A game session ID must contain 1–128 characters.");
-    if (!Number.isSafeInteger(sceneGeneration) || sceneGeneration < 0) throw new Error("Scene generation must be a non-negative integer.");
-    const selection = { ...key, gameSessionId, sceneGeneration };
+    const selection = { ...key, ...validateGameScope({ gameSessionId, sceneGeneration }) };
     if (this.#selection && Object.keys(selection).every((field) => this.#selection[field] === selection[field])) return profile;
     this.cancel("Selected NPC scope changed; the previous turn was discarded.");
     this.#selection = selection;

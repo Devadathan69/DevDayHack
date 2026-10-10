@@ -72,9 +72,15 @@ async function refreshStatus() {
   elements.providerBadge.textContent = "LIVE PROVIDERS";
   elements.providerBadge.className = "badge live";
   elements.gameMessage.textContent = status.gameMessage;
-  elements.limitLabel.textContent = `${status.liveTurnsRemaining} live turns remaining this run`;
+  elements.limitLabel.textContent = status.liveTurnsRemaining === null
+    ? "No app turn limit · provider quotas still apply"
+    : `${status.liveTurnsRemaining} live turns remaining this run`;
   $("privacyFooter").textContent = "Live providers · audio goes to ElevenLabs; transcript/history go to OpenAI; memory stays in local SQLite";
   updateControls();
+}
+
+function currentNpcName() {
+  return status?.npc?.name ?? "Manu";
 }
 
 function addMessage(speaker, text, kind = "") {
@@ -102,7 +108,7 @@ async function loadHistory() {
   elements.emptyState.hidden = true;
   for (const turn of history.turns) {
     addMessage("You", turn.player);
-    addMessage("Manu", turn.npc);
+    addMessage(currentNpcName(), turn.npc);
   }
 }
 
@@ -201,13 +207,13 @@ async function submitTurn(path, options) {
   if (busy) return;
   busy = true;
   elements.replyActions.hidden = true;
-  setStatus("Listening and preparing Manu’s reply…", "busy");
+  setStatus(`Listening and preparing ${currentNpcName()}’s reply…`, "busy");
   updateControls();
   try {
     const result = await request(path, options);
     activeTurnId = result.turnId;
     addMessage("You", result.transcript, "transcript");
-    addMessage("Manu", result.replyMl);
+    addMessage(currentNpcName(), result.replyMl);
     const timingText = result.timings
       ? ` · STT ${(result.timings.speechRecognitionMs / 1000).toFixed(1)}s, reply ${(result.timings.dialogueMs / 1000).toFixed(1)}s, voice ${(result.timings.speechSynthesisMs / 1000).toFixed(1)}s`
       : "";
@@ -345,7 +351,7 @@ elements.textForm.addEventListener("submit", async (event) => {
   await submitTurn("/api/text-turn", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
 });
 elements.resetButton.addEventListener("click", async () => {
-  if (!window.confirm("Erase Manu’s saved conversation memory for this demo player? This cannot be undone.")) return;
+  if (!window.confirm(`Erase ${currentNpcName()}’s saved conversation memory for this demo player? This cannot be undone.`)) return;
   try {
     if (busy || recorder || pendingRecorder || permissionPending || activeTurnId || audioElement) await cancelConversation();
     const result = await request("/api/reset", { method: "POST" });

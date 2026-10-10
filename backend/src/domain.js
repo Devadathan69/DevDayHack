@@ -50,6 +50,16 @@ export function validateConversationKey(key) {
   return { worldId: key.worldId, playerId: key.playerId, npcId: key.npcId };
 }
 
+export function validateGameScope({ gameSessionId, sceneGeneration }) {
+  if (typeof gameSessionId !== "string" || gameSessionId.trim().length === 0 || gameSessionId.length > 128) {
+    throw new ValidationError("A game session ID must contain 1–128 characters.");
+  }
+  if (!Number.isSafeInteger(sceneGeneration) || sceneGeneration < 0) {
+    throw new ValidationError("Scene generation must be a non-negative integer.");
+  }
+  return { gameSessionId, sceneGeneration };
+}
+
 export function validateTurnContext(context) {
   const key = validateConversationKey(context);
   if (typeof context.turnId !== "string" || context.turnId.length === 0 || context.turnId.length > 128) {
