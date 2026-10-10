@@ -35,6 +35,37 @@ export function validateProfile(profile) {
   if (profile.memoryPolicy !== "private") {
     throw new ValidationError("V1 only supports private per-player NPC memory.");
   }
+  if (profile.traits !== undefined) {
+    const traits = ["warmth", "curiosity", "humor", "confidence"];
+    if (!profile.traits || typeof profile.traits !== "object" || traits.some((key) => !Number.isInteger(profile.traits[key]) || profile.traits[key] < 0 || profile.traits[key] > 100)) {
+      throw new ValidationError("NPC traits must provide warmth, curiosity, humor, and confidence as integers from 0 to 100.");
+    }
+  }
+  if (profile.dialogue !== undefined) {
+    const dialogue = profile.dialogue;
+    if (!dialogue || !["brief", "balanced", "detailed"].includes(dialogue.replyLength)
+      || !["ml", "ml-en"].includes(dialogue.language)
+      || ![dialogue.creativity, dialogue.focus].every((value) => Number.isInteger(value) && value >= 0 && value <= 100)
+      || typeof dialogue.boundary !== "string" || dialogue.boundary.length > 220) {
+      throw new ValidationError("Dialogue settings are invalid. Check reply length, language, 0–100 sliders, and boundary length.");
+    }
+  }
+  if (profile.behavior !== undefined) {
+    const behavior = profile.behavior;
+    if (!behavior || !["familiar", "curious", "reserved"].includes(behavior.greeting)
+      || !["occasional", "rare", "frequent"].includes(behavior.ambient)
+      || ![behavior.memoryEnabled, behavior.sceneAware, behavior.teasing].every((value) => typeof value === "boolean")) {
+      throw new ValidationError("NPC behavior settings are invalid.");
+    }
+  }
+  if (profile.voice !== undefined) {
+    const voice = profile.voice;
+    if (!voice || typeof voice.preset !== "string" || voice.preset.length > 80
+      || !["natural", "cheerful", "calm", "playful"].includes(voice.mood)
+      || !Number.isInteger(voice.speed) || voice.speed < 70 || voice.speed > 130) {
+      throw new ValidationError("NPC voice preferences are invalid.");
+    }
+  }
   return Object.freeze({ ...profile });
 }
 

@@ -18,6 +18,18 @@ export class NpcRegistry {
     return this.#profiles.get(id);
   }
 
+  upsert(input) {
+    const profile = validateProfile(input);
+    this.#profiles.set(profile.id, profile);
+    this.#controllers.delete(profile.id);
+    return profile;
+  }
+
+  remove(id) {
+    this.#controllers.delete(id);
+    return this.#profiles.delete(id);
+  }
+
   get(id) {
     const profile = this.#profiles.get(id);
     if (!profile) throw new Error(`NPC '${id}' is not configured.`);

@@ -1,75 +1,78 @@
-# Integrate the companion with GTA San Andreas
+# GTA San Andreas integration status
 
-This is the planned Windows integration procedure for the **classic PC** game. It is an implementation guide, not a claim that this repository already has a native plugin. Today, the repository has a mock CLI and backend only: it does not build an ASI, inspect game entities, send bridge messages, or alter the game installation.
+## Implemented in the current ASI
 
-The local `.env` was checked on 10 October 2026: OpenAI and ElevenLabs returned HTTP 200 to authentication/account-read requests. Those checks did not generate text or audio. The current CLI does not load these variables and still uses mock providers.
+`native/src/bootstrap.cpp` builds a 32-bit ASI. GDI+ rasterizes the popup/input/Malayalam text; `native/src/d3d-overlay.cpp` uploads premultiplied BGRA pixels and composites them inside the game's Direct3D9 frame, rather than relying on a layered desktop window. The module hooks the Direct3D factory/device vtables and preserves the game's render state; default-pool resources are released for device Reset. The backend remains on `127.0.0.1`, with a random local bridge token accepted only on conversation routes and never exposed to the browser.
 
-## 1. Identify the exact game installation
+The nearest eligible pedestrian triggers the popup within 3.5 units. Dead pedestrians, vehicle occupants, other areas and different floors are excluded. F6/Enter pins the pedestrian's pool address and generation-bearing handle and opens typed input. Leaving 5 units, entering a vehicle, scene unload, recycled/removed selection, Escape or loss of focus cancels the conversation and speech. Null player/pool pointers during menus are transient, not permanent compatibility failures. Unsupported code fingerprints never enable manual proximity claims.
 
-Do this on the Windows machine that has the game. Do not infer executable compatibility from the label `Build 459558 | Full Version`.
+The selected pool handle plus scene-unload epoch is sent as `sceneGeneration` with `gameSessionId: gta-<pid>`; repeated selection is idempotent, different pedestrians/scenes have isolated memory and stale turns cannot acknowledge a new selection. Speech starts after the subtitle frame is confirmed by the renderer. Subtitle duration follows actual audio duration/playback, with a text-only warning on audio failure. No model output becomes a game command. Typed input is supported in-game; microphone PTT remains browser-only. All eligible pedestrians currently share the original Manu persona/voice; pool identity is not stable across game restarts.
 
-In PowerShell, set `$exePath` to the installed `gta_sa.exe` path and collect metadata without modifying the game:
+The source project for the address/version conventions is [Plugin-SDK](https://github.com/DK22Pac/plugin-sdk), including its [GTA executable detector](https://github.com/DK22Pac/plugin-sdk/blob/master/injector/injector.hpp#L2987-L3112), [`CPools::ms_pPedPool`](https://github.com/DK22Pac/plugin-sdk/blob/master/plugin_sa/game_sa/CPools.cpp), and [`CPool` layout](https://github.com/DK22Pac/plugin-sdk/blob/master/plugin_sa/game_sa/CPool.h). The detector lists the supported GTA SA 1.0 US entry points as `0x824570` and `0x82457C`; the ASI checks their preferred-base RVAs before touching game memory. The installed 2014 layout is additionally gated by image size and two exact instruction fingerprints that reference the player-info array and pedestrian pool (including the 0x7C4 stride). Code/global addresses and embedded pointer operands are resolved against the actual runtime module base: this executable was observed at `0xB00000`, not its preferred `0x400000`, due to ASLR. The classic 1.0 US fixed-address path remains restricted to its original base. The player-info layout and vehicle/health field conventions were cross-checked against [SilentPatch's player bindings](https://github.com/CookiePLMonster/SilentPatch/blob/master/SilentPatchSA/PlayerInfoSA.cpp) and [Plugin-SDK CPed](https://github.com/DK22Pac/plugin-sdk/blob/master/plugin_sa/game_sa/CPed.h). No external project or game executable was imported; only layout conventions were consulted.
+
+## Installed executable and compatibility
+
+Read-only inspection found a 5,971,456-byte x86 PE named `gta-sa.exe`. Its `FileVersion`, `ProductVersion`, and `OriginalFilename` fields are blank. The PE timestamp is 1 December 2014 and its entry-point RVA is `0x458DB8` (preferred-base address `0x858DB8`). The adjacent `installscript.vdf` contains a `1.00.00001` registry key but refers to `gta_sa.exe`; that clue does not establish the executable version. The user reports this is an official copy. The entry point matches none of Plugin-SDK's listed targets, so the earlier entry-point-only reader disabled detection. The current implementation recognizes this exact layout with additional verified player/pool code fingerprints. Its SHA-256 is `AA07FCDC8723A2831F77A35491DEA6CDD58F6733E3AC69A10DDF5CDF95034FE3`; this identifies the checked local file, not its licensing or compatibility with other mods.
+
+The root's existing `dinput8.dll` is Ultimate ASI Loader v9.7.4 x86 (5,418,336 bytes; previously matched against its official SHA-512 sidecar). The game imports `DINPUT8.dll`, `D3D9.dll`, and `XINPUT1_3.dll`; the existing loader and all other game files are left untouched. An earlier launch verified ASI loader startup but exposed no targetable game window; that earlier result is not evidence for the new in-frame renderer. A loaded save/new game and real pedestrian approach are required for runtime verification.
+
+## Build and run
+
+Build with the installed Visual Studio x86 C++ tools:
 
 ```powershell
-$exePath = 'C:\Games\GTA San Andreas\gta_sa.exe'
-$exe = Get-Item -LiteralPath $exePath
-$exe | Select-Object FullName, Length
-$exe.VersionInfo | Select-Object FileVersion, ProductVersion, OriginalFilename
-Get-FileHash -Algorithm SHA256 -LiteralPath $exe.FullName
-Get-ChildItem -LiteralPath $exe.DirectoryName -File |
-  Where-Object { $_.Name -match '(?i)^(dinput8|d3d8|d3d9|dsound|winmm|version)\.dll$|\.asi$' } |
-  Select-Object Name, Length
+npm run build:native
 ```
 
-Record the Windows version, installation source, executable metadata/hash, and any existing ASI loader, graphics wrapper, or `.asi` files. Keep paths and hashes in a local compatibility note if you do not want them public. This information is a precondition for choosing an SDK target and loader proxy; it does not by itself prove that a hook is compatible.
+The generated file is `native/build/MalayalamNpcBootstrap.asi`. Close GTA and explicitly install that file, then start the backend before launching the game:
 
-## 2. Build and validate a harmless ASI first
+```powershell
+npm run install:native -- -GameDirectory '..\Grand Theft Auto San Andreas'
+npm start
+```
 
-1. Follow the [Plugin-SDK setup](https://github.com/DK22Pac/plugin-sdk/wiki/Set-up-plugin-sdk) and [new-plugin guide](https://github.com/DK22Pac/plugin-sdk/wiki/Creating-a-new-plugin-in-plugin-sdk). Select the GTA San Andreas target and build architecture that match the verified executable. Plugin-SDK lists San Andreas among its supported game families, but the installed executable still needs a compatibility check.
-2. Build a no-op plugin that writes a short startup/shutdown line to a project-owned log outside the game folder. It must not hook gameplay or touch entities yet.
-3. Implement initialization outside `DllMain`/the Windows loader lock. Ultimate ASI Loader documents the `InitializeASI` callback for this; its default plugin-load behavior is outside `DllMain`. Keep initialization short and start any worker only after a valid plugin initialization callback.
-4. Confirm the SDK output architecture and plugin target from the build artifacts before installing anything.
+Use the correct game directory on other installations. The install script copies only this project's ASI, requires an already installed x86 loader, and verifies SHA-256. Restart the game to load the new ASI; keep the backend terminal running. Avoid browser and GTA conversations at the same time because the backend has one active session.
 
-References: [Plugin-SDK README](https://github.com/DK22Pac/plugin-sdk) · [Ultimate ASI Loader README](https://github.com/ThirteenAG/Ultimate-ASI-Loader).
+The backend writes its bridge token under the current user's local application data. Keep `.env`, the token, database, logs, and temporary audio outside the game folder and repository. `UI_PORT` can change the port; the ASI reads it from the token file. In-game replies use OpenAI and ElevenLabs and require the provider credentials in `.env`.
 
-## 3. Choose a loader without overwriting an existing proxy
+Runtime diagnostics are appended to `%LOCALAPPDATA%\MalayalamNpcDemo\logs\game-bridge.log` in UTF-16. Separate messages identify successful code fingerprints, a visible game window and actual Direct3D game frames; timer/plugin initialization alone does not prove an on-screen popup. No transcripts or bridge credentials are logged. The install/build and gameplay results for this revision are recorded in CHANGELOG.md.
 
-The [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader) accepts `.asi` plugins and supports several proxy DLL names. The correct proxy name and architecture depend on the actual game executable and existing installation. Do not rename a downloaded proxy to `dinput8.dll` (or another name) just because a generic guide says to; first check the loader's current supported-name list and check whether that DLL already belongs to another mod or wrapper.
+## In-game controls
 
-Before installing, make a manifest of only the files this project will add or replace. Back up any file that must be replaced. If an existing loader is present, determine how it loads plugins and test the no-op plugin through that setup before adding another loader. Never overwrite an unknown proxy DLL.
+- Load a save/new game. Approach an eligible pedestrian; **Interact with Manu [F6 / Enter]** appears within 3.5 units on either recognized layout.
+- Press **F6** or **Enter** once, type, then press **Enter** to send; no automatic greeting/provider call is made on selection.
+- **Backspace** edits; **Escape** cancels speech/turn and leaves. Held interaction/send keys are debounced.
+- The keyboard hook acts only while GTA is foreground; Windows, Alt+Tab and Alt+F4 remain available. Mouse/gamepad controls and pedestrian AI are not modified.
+- Keep the selected pedestrian within 5 units. Reply subtitles accompany the audio and remain until playback finishes. Voice failure is visibly reported rather than claimed as success.
 
-## 4. Add the native adapter in small steps
+## Validation and remaining work
 
-The future native component belongs in `native/` and should be a thin game-side event bridge. It should not capture microphone audio, call OpenAI/ElevenLabs, access SQLite, or wait on network I/O from the game thread.
+Run `npm run check`, `npm test`, `npm run test:native`, and `npm run build:native`. Optional read-only local-file validation: `npm run test:native -- -GameExecutable '..\Grand Theft Auto San Andreas\gta-sa.exe'`. Backend tests use stub providers, not an offline/demo runtime. The native tests check eligibility/range, slot generation, nearest-distance ordering, wrap-safe timers and rejected fingerprints; the supplied installed executable passes both exact code signatures. Final commands/results, renderer smoke evidence and copied-file verification are recorded in CHANGELOG.md.
 
-Implement in this order:
+Initial live dialogue succeeded while ElevenLabs returned HTTP 401. The user corrected local credentials; one authorized speech-only request then returned 30,555 bytes of verified MPEG Layer III audio, and Windows MCI playback succeeded (1,910 ms). No OpenAI request was made during that speech-only check. Restart the backend after changing `.env`; never put provider keys in chat or logs.
 
-1. **Startup and shutdown:** log plugin lifecycle and leave the game unchanged when the backend is absent.
-2. **Backend connection:** connect from a worker to a backend bound only to `127.0.0.1`. Use the versioned UTF-8 newline-delimited JSON protocol described in [plan.md](../plan.md#7-local-bridge-and-security), bounded message sizes, a local token, and reconnect backoff. Do not put provider API keys in the game process.
-3. **Readiness:** send a versioned `hello`; remain unavailable for conversation until the backend and companion both report ready. Reconnect must never resume an old turn.
-4. **Single NPC binding:** configure `demo-npc-001` and one repeatable scene/location. Bind it explicitly to a currently validated game entity. Keep the application ID separate from the runtime entity handle, and attach a scene generation to events. Do not use a recycled pointer/handle as permanent identity or select a random nearest pedestrian as durable identity.
-5. **Interaction input:** add one interaction key and push-to-talk events. On key release, focus loss, target loss, save/load, or scene transition, stop capture/work and invalidate the turn. Emit only `npc.selected`, `ptt.started`, `ptt.stopped`, `npc.invalidated`, and `scene.changed` style events; never accept model-generated game commands.
-6. **Status only:** report selection/readiness to the game as a small indicator if a verified, safe game API exists. If not, keep status in the companion UI.
+Gameplay exposed two additional native failures that offline/single-turn checks missed: the executable is ASLR-relocated, and MCI aliases belong to their opening thread. The first address-base fix enabled real proximity; the first file-close fix alone did not solve repeated speech because successive HTTP workers could not resolve each other's MCI aliases (error 263). All MCI open/play/status/close and MP3 replacement now run on the persistent overlay-owner thread. An x86 test exercises the actual production dispatch from five distinct workers and checks cancellation/stale requests. The user confirmed the popup and two consecutive spoken, subtitled replies after installing the final build. The copied 248,832-byte ASI hash matches the build; logs confirm recognized runtime fingerprints and actual game frames.
 
-The backend should verify protocol version, session/scene generation, configured NPC identity, readiness, and message limits before accepting any event. Native queues must be bounded; status updates can be coalesced. Provider results for cancelled or stale generations must be discarded.
+The core popup/typed reply/speech/subtitle walkthrough is user-confirmed. For broader coverage, additionally verify removal/leaving range, Escape/Alt+Tab, selecting a second pedestrian, provider failures, resolution changes and fullscreen behavior across other supported machines/mod combinations. Pedestrian AI continues moving; no mouse/gamepad suppression or persistent persona assignment across game restarts is implemented. For removal, close GTA and remove only `MalayalamNpcBootstrap.asi`; do not remove saves, other plugins, executables or existing proxy DLLs.
 
-## 5. Connect components and test away from live gameplay first
+## GPU smoke tests
 
-1. Start the backend and companion and confirm they report their actual mode. Keep `.env` and all provider credentials in the backend environment only.
-2. Test the protocol with synthetic messages before loading the plugin. Verify duplicate events, malformed JSON, oversize frames, disconnection, cancellation, and scene-generation changes.
-3. Install only the no-op plugin and verify the game launches and shuts down normally. Inspect loader logs and the project-owned plugin log.
-4. Add target selection and entity invalidation, still with providers disabled. Verify that an invalid/despawned target cancels interaction without affecting the game.
-5. Only after those steps pass, connect the companion PTT event to the selected NPC and test a mock turn.
-6. Add live providers after the backend adapters exist. Show Malayalam subtitles independently from audio, and label mock/live status clearly.
-7. Verify memory isolation/reset and restart behavior. The current in-memory store loses conversation history on process exit; persistent recall requires the later storage milestone.
+From an **x86 Visual Studio Developer PowerShell**, at repository root:
 
-Do not claim in-game voice is working until a live exchange has been demonstrated through the verified game binding. The current mock CLI is not connected to the game.
+```powershell
+Set-Location native\build
+cl.exe /nologo /MT /EHsc /std:c++17 /W4 /WX /DUNICODE /D_UNICODE /Fe:d3d-overlay-smoke.exe ..\test\d3d-overlay.test.cpp ..\src\d3d-overlay.cpp /link /MACHINE:X86 d3d9.lib user32.lib
+.\d3d-overlay-smoke.exe
+cl.exe /nologo /MT /EHsc /std:c++17 /W4 /WX /DUNICODE /D_UNICODE /DOVERLAY_FALLBACK_ONLY /Fe:d3d-overlay-fallback-smoke.exe ..\test\d3d-overlay.test.cpp ..\src\d3d-overlay.cpp /link /MACHINE:X86 d3d9.lib user32.lib
+.\d3d-overlay-fallback-smoke.exe
+```
 
-## 6. Install, record, and remove
+The factory and fallback hosts passed 59 and 60 checks respectively: actual backbuffer pixels/blending, state restoration, Reset, helper-device exclusion, concurrent frame submissions and presentation counters. These tests require working local Direct3D9 hardware/runtime and never call providers or modify GTA. The fallback alone cannot discover a device with a private vtable created before interception; factory interception is the primary path.
 
-- Install only the project-built `.asi`, its non-secret configuration, and a loader only if this installation does not already have a compatible one.
-- Keep the provider `.env`, database, logs, recordings, and temporary audio outside the game directory and source repository.
-- Record exact tested executable hash, SDK revision, loader filename/version, architecture, plugin build, and installation manifest.
-- For removal, close the game; remove only files named in this project's manifest; restore any backed-up file that this project replaced. Do not delete other mods, saves, or game files.
+Optional production audio-owner regression, using an existing MP3 and no provider call:
 
-No executable, game asset, save, or third-party loader binary should be committed or bundled with this project. Check [RULES.md](../RULES.md) and the licensing/privacy discussion in [plan.md](../plan.md#11-legal-licensing-and-privacy-checklist) before a public demo.
+```powershell
+npm run test:native -- -AudioFile 'C:\Temp\test-reply.mp3'
+```
+
+Keep generated speech fixtures outside the repository; no fixture is bundled.

@@ -1,14 +1,15 @@
 const STORAGE_KEY = "narrative-lab:profiles:v2";
 const LEGACY_KEY = "narrative-lab:demo-npc-001";
+const SERVER_API = "/api/admin/profiles";
 const defaults = {
   id: "demo-npc-001", displayName: "Manu",
   personality: "Friendly, curious, and mildly sarcastic. Keep the humor warm.",
   originalBackstory: "Manu likes chatting with people he meets around town and is proud of his snack recommendations.",
-  language: "ml", voiceRef: "mock-malayalam", memoryPolicy: "private",
+  language: "ml", voiceRef: "manu-default", memoryPolicy: "private",
   traits: { warmth: 78, curiosity: 66, humor: 54, confidence: 62 },
   dialogue: { replyLength: "balanced", language: "ml", creativity: 42, focus: 72, boundary: "Keep it friendly. Never claim to control the game or know things outside this conversation." },
   behavior: { greeting: "familiar", ambient: "occasional", memoryEnabled: true, sceneAware: true, teasing: true },
-  voice: { preset: "mock-malayalam", mood: "natural", speed: 100 }
+  voice: { preset: "server-default", mood: "natural", speed: 100 }
 };
 const presets = {
   welcoming: { label: "Welcoming local", traits: { warmth: 88, curiosity: 62, humor: 48, confidence: 68 }, behavior: { greeting: "familiar", ambient: "occasional", memoryEnabled: true, sceneAware: true, teasing: true } },
@@ -25,6 +26,14 @@ let profiles = [];
 let selectedId = defaults.id;
 let toastTimer;
 let storageAvailable = true;
+let apiConnected = false;
+let apiSaveTimer = null;
+let apiSavePending = false;
+let apiSaveRevision = 0;
+let apiWriteQueue = Promise.resolve();
+let apiConnectionError = "";
+let companionReady = false;
+let gameProfileId = defaults.id;
 
 function deepCopy(value) { return JSON.parse(JSON.stringify(value)); }
 function newProfile(data = defaults, versions = [], activeVersion = null) { return { data: deepCopy(data), versions: deepCopy(versions), activeVersion }; }
@@ -43,7 +52,7 @@ function readForm() {
     dialogue: { replyLength: $("replyLength").value, language: $("language").value, creativity: Number($("creativity").value), focus: Number($("focus").value), boundary: $("boundary").value.trim() },
     behavior: { greeting: $("greeting").value, ambient: $("ambient").value, memoryEnabled: $("memoryEnabled").checked, sceneAware: $("sceneAware").checked, teasing: $("teasing").checked },
     voice: { preset: $("voicePreset").value, mood: $("voiceMood").value, speed: Number($("voiceSpeed").value) },
-    voiceRef: $("voicePreset").value
+    voiceRef: base.voiceRef
   };
 }
 
@@ -70,6 +79,9 @@ function renderRoster() {
   }));
   select.value = selectedId;
   $("rosterCount").textContent = String(profiles.length).padStart(2, "0");
+  const protectedGameProfile = current()?.data.id === defaults.id;
+  $("deleteNpcButton").disabled = profiles.length < 2 || protectedGameProfile;
+  $("deleteNpcButton").title = protectedGameProfile ? "The GTA bridge profile is protected." : "Delete this local profile";
 }
 
 function isPublished(profile) {
@@ -114,7 +126,16 @@ function render() {
   const published = isPublished(profile);
   $("statePill").innerHTML = `<i></i> ${published ? "PUBLISHED" : "DRAFT"}`;
   $("publishButton").disabled = published;
-  $("saveStatus").textContent = storageAvailable ? (published ? "Published snapshot · saved locally" : "Draft saved in this browser") : "Browser storage unavailable";
+  const runtimeTag = $("runtimeTag");
+  const activeVersion = current().activeVersion;
+  const changedBuiltIn = profile.id === gameProfileId && !activeVersion && JSON.stringify(profileDataOnly(profile)) !== JSON.stringify(profileDataOnly(defaults));
+  if (apiConnected && profile.id === gameProfileId) runtimeTag.textContent = activeVersion ? (published ? `GAME · V${activeVersion} ACTIVE` : `GAME · V${activeVersion} ACTIVE · DRAFT`) : changedBuiltIn ? "GAME PROFILE · DRAFT" : "GAME PROFILE · BUILT-IN";
+  else if (apiConnected) runtimeTag.textContent = companionReady ? (activeVersion ? (published ? `COMPANION · V${activeVersion} ACTIVE` : `COMPANION · V${activeVersion} ACTIVE · DRAFT`) : "COMPANION READY") : "PUBLISH TO ACTIVATE";
+  else runtimeTag.textContent = "LOCAL PROFILE";
+  $("saveStatus").textContent = apiConnected
+    ? (apiSavePending ? "Saving to local server…" : published ? "Published on local server" : "Saved to local server")
+    : apiConnectionError ? "Local draft · backend unavailable"
+      : storageAvailable ? (published ? "Published snapshot · saved locally" : "Draft saved in this browser") : "Browser storage unavailable";
   $("updatedAt").textContent = saved.updatedAt ? `◷ Edited ${new Date(saved.updatedAt).toLocaleString()}` : "◷ Draft saved locally";
   document.querySelectorAll(".trait-range").forEach(setRange);
   snapshot(profile); renderRoster(); renderVersions();
@@ -123,13 +144,29 @@ function render() {
 function persist() {
   const data = readForm();
   current().data = { ...data, updatedAt: new Date().toISOString() };
-  current().activeVersion = null;
   saveAll(); render();
 }
 
 function saveAll() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ profiles, selectedId })); storageAvailable = true; }
   catch { storageAvailable = false; }
+  if (!apiConnected) return;
+  clearTimeout(apiSaveTimer);
+  apiSavePending = true;
+  $("saveStatus").textContent = "Saving to local server…";
+  apiSaveTimer = setTimeout(async () => {
+    const revision = ++apiSaveRevision;
+    const body = JSON.stringify({ profiles, selectedId });
+    apiWriteQueue = apiWriteQueue.catch(() => {}).then(async () => {
+      const response = await fetch(SERVER_API, { method: "PUT", headers: { "Content-Type": "application/json" }, body });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? `HTTP ${response.status}`);
+      companionReady = result.companionReady === true; gameProfileId = result.gameProfileId ?? gameProfileId; apiConnectionError = "";
+      if (revision === apiSaveRevision) { apiSavePending = false; render(); }
+    }).catch((error) => {
+      if (revision === apiSaveRevision) { apiSavePending = false; apiConnectionError = error.message; $("saveStatus").textContent = `Backend save failed: ${error.message}`; }
+    });
+  }, 300);
 }
 
 function hydrate(profile) {
@@ -158,7 +195,7 @@ function downloadProfile(profile = readForm()) {
 
 function validateProfile(profile) {
   if (!profile || typeof profile !== "object" || typeof profile.displayName !== "string" || !profile.displayName.trim() || profile.displayName.length > 80) throw new Error("Profile needs a name (1–80 characters).");
-  if (typeof profile.originalBackstory !== "string" || profile.originalBackstory.length > 1000) throw new Error("Backstory must be 1,000 characters or fewer.");
+  if (typeof profile.originalBackstory !== "string" || !profile.originalBackstory.trim() || profile.originalBackstory.length > 1000) throw new Error("Backstory must contain 1–1,000 characters.");
   if (profile.traits && Object.values(profile.traits).some((value) => !Number.isFinite(value) || value < 0 || value > 100)) throw new Error("Trait values must be between 0 and 100.");
 }
 
@@ -198,11 +235,10 @@ function applyPreset(key) {
 function restoreVersion(number) {
   const version = current().versions.find((entry) => entry.number === number); if (!version) return;
   current().data = { ...deepCopy(version.profile), updatedAt: new Date().toISOString() };
-  current().activeVersion = null;
   saveAll(); hydrate(current().data); showToast(`Restored version ${number} as a draft`);
 }
 
-function init() {
+async function init() {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
@@ -216,6 +252,25 @@ function init() {
   } catch { profiles = [newProfile(defaults)]; selectedId = defaults.id; storageAvailable = false; }
   if (!profiles.some((item) => item.data.id === selectedId)) selectedId = profiles[0].data.id;
   renderRoster(); hydrate(current().data);
+  if (location.protocol !== "file:" && location.pathname.startsWith("/admin")) {
+    try {
+      const response = await fetch(SERVER_API, { cache: "no-store" });
+      const state = await response.json();
+      if (!response.ok) throw new Error(state.error ?? `HTTP ${response.status}`);
+      if (Array.isArray(state.profiles) && state.profiles.length) {
+        profiles = state.profiles.map((item) => ({ data: { ...deepCopy(defaults), ...item.data }, versions: item.versions ?? [], activeVersion: item.activeVersion ?? null }));
+        selectedId = state.selectedId;
+        companionReady = state.companionReady === true; gameProfileId = state.gameProfileId ?? defaults.id;
+        if (!profiles.some((item) => item.data.id === selectedId)) selectedId = profiles[0].data.id;
+        apiConnected = true;
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ profiles, selectedId })); } catch { storageAvailable = false; }
+        renderRoster(); hydrate(current().data);
+      }
+    } catch (error) {
+      apiConnectionError = error.message;
+    }
+    render();
+  }
 }
 
 document.querySelectorAll(".editor-column input:not([disabled]), .editor-column textarea, .editor-column select").forEach((control) => {
@@ -238,7 +293,7 @@ $("exportButton").addEventListener("click", () => downloadProfile());
 $("publishButton").addEventListener("click", publish);
 $("resetButton").addEventListener("click", () => {
   const id = current().data.id; const profile = { ...deepCopy(defaults), id, displayName: id === defaults.id ? defaults.displayName : current().data.displayName };
-  current().data = profile; current().activeVersion = null; $("behaviorPreset").value = "custom"; saveAll(); hydrate(profile); showToast("Restored default settings as a draft");
+  current().data = profile; $("behaviorPreset").value = "custom"; saveAll(); hydrate(profile); showToast("Restored default settings as a draft");
 });
 $("behaviorPreset").addEventListener("change", () => applyPreset($("behaviorPreset").value));
 $("refreshPreview").addEventListener("click", scenarioReply);

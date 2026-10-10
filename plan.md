@@ -2,7 +2,7 @@
 
 **Delivery strategy:** integrate one NPC end to end, validate the demo, and only then enable additional NPC instances. Build reusable boundaries from the beginning without implementing city-scale behavior prematurely.
 
-**Status:** Phase 1 mock backend scaffold is implemented. The configured provider credentials in this checkout passed read-only authentication checks, but the application has no live provider adapters yet. GTA compatibility, microphone/audio behavior, and persistent storage remain unverified.
+**Status (11 October 2026):** The browser/live providers/SQLite backend now also supports a concrete nearby-pedestrian typed interaction with a Direct3D9 in-frame popup and speech-linked subtitles. The native reader recognizes both GTA SA 1.0 US and the installed 2014 executable using guarded code fingerprints; an offline native check confirms the installed player/pool signatures. Selection is pinned to a generation-bearing pedestrian handle; leaving range, recycled slots, scene unload, Escape or focus loss cancels it. Backend HTTP regressions cover scope isolation, cancellation, audio and delivery acknowledgements without paid API calls. All pedestrians currently share Manu's persona/voice, and in-game microphone input remains unimplemented. See README and the integration guide for exact build/deployment/runtime checks. The user confirmed the nearby popup and two consecutive spoken/subtitled replies after ASLR and stable-thread MCI fixes. Core Phase 4 typed interaction is now demonstrated; broader edge-case/other-mod coverage and in-game microphone input remain pending.
 
 ## 1. Goal and confirmed requirements
 
@@ -14,7 +14,7 @@ Build a local Windows hackathon prototype where the player approaches one design
 | --- | --- |
 | Game | Classic GTA San Andreas PC, already installed |
 | Reported version label | `Build 459558 \| Full Version` |
-| Executable compatibility | Not yet established; the reported label is not a verified native executable version |
+| Executable compatibility | Installed 2014 layout verified offline and at its relocated runtime base; core typed gameplay confirmed by the user |
 | Demo platform | Windows |
 | Interaction | Push-to-talk voice input and voice output |
 | Initial NPC count | Exactly one configured NPC |
@@ -29,7 +29,7 @@ This document is self-contained: it specifies a new project, its component bound
 
 ### Scope boundary for provider details
 
-Do not block architecture work on selecting an OpenAI model, ElevenLabs model, voice ID, or speech configuration. Define ports and mock providers now; fill in the ElevenLabs speech and OpenAI dialogue adapters when implementing the live integration milestone. Keep SDK-specific types, provider session state, and credentials outside the NPC domain layer.
+Keep OpenAI and ElevenLabs behind provider interfaces, with credentials and SDK-specific types outside the NPC domain layer. Runtime conversations use the live adapters; tests can isolate provider requests with stubbed HTTP responses.
 
 ### Decisions still required
 
@@ -221,9 +221,9 @@ const npcA = new NpcController(profiles.npcA, sharedServices);
 | `NpcController` | Orchestrate a turn without depending on GTA-specific APIs |
 | `SessionManager` | Own target selection, PTT state, cancellation, and single-speaker arbitration |
 | `GameBridge` | Translate validated native messages into application events |
-| `SpeechRecognizer` | Transcribe audio; support a mock implementation |
+| `SpeechRecognizer` | Transcribe audio and expose bounded transcript results |
 | `DialogueBrain` | Produce short character-consistent Malayalam responses |
-| `SpeechSynthesizer` | Generate voice audio; support mocks and subtitle-only fallback |
+| `SpeechSynthesizer` | Generate voice audio and report failures for subtitle fallback |
 | `MemoryStore` | Read/write history and summaries with enforced NPC/player isolation |
 | `CompanionUI` | Capture audio, display states/subtitles, play speech, acknowledge playback |
 
@@ -276,7 +276,7 @@ interface MemoryStore {
 }
 ```
 
-Validate inputs/outputs at the application boundary. Interfaces use bounded UTF-8 text and explicit audio metadata, not vendor-specific response objects. Mock implementations must support success, delay, cancellation, malformed responses, and failures.
+Validate inputs/outputs at the application boundary. Interfaces use bounded UTF-8 text and explicit audio metadata, not vendor-specific response objects. Provider test doubles should cover success, delay, cancellation, malformed responses, and failures without adding an offline runtime mode.
 
 Provider clients and the database connection may be shared. Mutable dialogue state must be scoped to `(worldId, playerId, npcId)`; shared services must not contain a global conversation history.
 
@@ -497,7 +497,7 @@ gta-sa-malayalam-npcs/
       memory/                # SQLite repository, migrations, summaries
       bridge/                # Native protocol and companion transport
       config/                # Environment/schema validation
-    tests/                   # Unit/integration tests with mock providers
+    tests/                   # Unit/integration tests with stubbed provider responses
   companion/
     src/                     # Microphone, subtitles, playback, controls
   profiles/                  # Original NPC profiles; no credentials
@@ -541,24 +541,24 @@ Deliverables: compatibility record, harmless native smoke-test log, and a descri
 
 ### Phase 1: reusable backend, no game dependency
 
-- [x] Implement provider interfaces and mock adapters.
+- [x] Implement provider interfaces and live adapters; isolate tests with stubbed responses.
 - [x] Implement `NpcController`, registry, and session state machine.
 - [x] Register exactly one profile through the reusable factory.
 - [x] Implement validated, short Malayalam responses and error/cancellation handling.
-- [ ] Add deterministic unit tests.
+- [x] Add deterministic unit and adapter tests.
 
-**Repository progress (10 October 2026):** A dependency-free Node.js CLI drives a mock turn through the profile registry/controller and in-memory memory store. JavaScript syntax checking and a two-turn Malayalam recall walkthrough have run. Phase 1 remains in progress until deterministic unit tests are added; the CLI does not capture or play audio.
+**Repository progress (10 October 2026):** The backend and local companion use the same profile registry/controller. Deterministic checks cover live-provider request construction, SQLite restart persistence, private scope isolation, delivery status, and stale reset writes. A previous CLI and provider-free companion were removed; the current app requires live provider credentials. Live microphone/provider quality still needs an opt-in real-device round trip.
 
-**Exit:** the single controller completes mock turns with no GTA/provider dependencies. A synthetic second ID can be used in tests, but a second in-game NPC is not implemented here.
+**Exit:** the single controller is covered by deterministic provider stubs outside GTA; the running app uses live providers. A synthetic second ID can be used in tests, but a second in-game NPC is not implemented here.
 
-Deliverables: shared interfaces, controller, registry, session state machine, mock adapters, and deterministic unit tests.
+Deliverables: shared interfaces, controller, registry, session state machine, live provider adapters, and deterministic provider-stub tests.
 
 ### Phase 2: persistence
 
-- [ ] Add SQLite migrations and parameterized memory storage.
-- [ ] Persist delivered turns and load bounded history after restart.
-- [ ] Add NPC/world/player isolation and confirmed reset controls.
-- [ ] Test that fabricated summaries and undelivered replies are not treated as confirmed shared history.
+- [x] Add SQLite schema setup and parameterized memory storage.
+- [x] Persist delivered turns and load bounded history after restart.
+- [x] Add NPC/world/player isolation and confirmed reset controls.
+- [x] Check that undelivered replies are excluded from history; summaries are not implemented in V1.
 
 **Exit:** the single NPC recalls prior information after restart, and synthetic-scope tests prove that reads/writes do not leak across IDs.
 
@@ -566,17 +566,17 @@ Deliverables: schema migrations, context-loading policy, generation-guarded rese
 
 ### Phase 3: voice companion
 
-- [ ] Implement PTT capture, supported audio upload, and transcription display.
-- [ ] Connect the ElevenLabs speech adapter for recognition and generation; populate provider-specific settings at this milestone.
-- [ ] Connect the OpenAI dialogue adapter without changing the controller contract.
+- [x] Implement PTT capture, bounded audio upload, and transcription display.
+- [x] Connect the ElevenLabs speech adapter for recognition and generation; add environment configuration.
+- [x] Connect the OpenAI dialogue adapter without changing the controller contract.
 - [ ] Validate a complete Malayalam voice exchange outside GTA before coupling it to input hooks.
-- [ ] Add playback acknowledgement and delivery-state handling.
-- [ ] Add processing indicators, subtitles, cancel, mute, and text-input fallback.
-- [ ] Add cost/time limits and stage-level latency measurements.
+- [x] Add playback acknowledgement and delivery-state handling.
+- [x] Add processing indicators, subtitles, cancel, mute, and text-input fallback.
+- [x] Add a live-turn cap, total turn timeout, and stage-level latency measurements.
 
-**Exit:** a complete live Malayalam voice exchange works independently of the game adapter.
+**Status:** implementation is present, but the exit condition is still pending a live microphone/provider/device round trip. Provider request shapes are checked with stubbed responses only.
 
-Deliverables: local companion UI, live provider adapters, stage timing, and working microphone/playback behavior while GTA has focus.
+Deliverables: local companion UI, live provider adapters, stage timing, and an unverified microphone/playback path. Audio behavior with GTA focused remains untested.
 
 ### Phase 4: in-game integration
 
@@ -595,7 +595,7 @@ Deliverables: native adapter, validated protocol, scene lifecycle integration, a
 - [ ] Rehearse memory recall, isolation, restart, and reset.
 - [ ] Test network/provider failures and expired/late audio results.
 - [ ] Check recording layout, microphone clarity, and game/music volume.
-- [ ] Record a backup video; label any mock or prerecorded fallback explicitly.
+- [ ] Record a backup video; label any cached or prerecorded fallback explicitly.
 - [ ] Document the tested game/SDK/loader/provider versions and launch instructions.
 
 **Exit:** all V1 acceptance criteria below pass on the actual Windows demo machine. Freeze the working single-NPC demo before starting multi-NPC integration.
@@ -624,13 +624,13 @@ Deliverables: native adapter, validated protocol, scene lifecycle integration, a
 9. Malayalam subtitles render correctly in the companion; native glyph rendering is not assumed.
 10. Reset removes associated application memory and temporary artifacts, not arbitrary game files.
 11. No credentials, personal recordings, database files, or proprietary game assets appear in the repository/package.
-12. The demo accurately labels live, cached, mock, and prerecorded behavior.
+12. The demo accurately labels live, cached, and prerecorded behavior.
 
 ### Test layers
 
 | Layer | Required checks | Tools/approach |
 | --- | --- | --- |
-| Domain unit tests | Profile validation, turn ownership, transitions, context construction | Mock providers and fake clock |
+| Domain unit tests | Profile validation, turn ownership, transitions, context construction | Provider stubs and fake clock |
 | Memory integration tests | Persistence, isolation, duplicates, reset during pending turn | Temporary SQLite database |
 | Protocol tests | Split/coalesced frames, invalid JSON, oversized messages, stale generations | Native/backend fixtures |
 | Companion tests | PTT down/up, focus loss, empty recording, permission denial, duplicate playback | Browser automation plus device smoke tests |
@@ -705,7 +705,7 @@ This plan is technical guidance, not legal clearance. A public hackathon present
 
 These are script names to implement, not existing executable commands:
 
-- `dev`: start the backend and companion with mock adapters.
+- `dev`: start the backend and companion with configured live providers.
 - `test`: run domain, memory, and protocol tests without paid API calls.
 - `test:live`: explicit opt-in provider smoke tests.
 - `build`: build the TypeScript applications and static companion assets.
@@ -749,12 +749,12 @@ Display:
 - Current NPC name/application ID and scene-binding validity.
 - Current state and turn ID.
 - Last-stage timing and a concise actionable error.
-- Whether the displayed result is live, mocked, cached, or a fallback.
+- Whether the displayed result is live, cached, or a fallback.
 - Reset, cancel, mute, and test-audio controls.
 
 ### Debugging order
 
-1. Reproduce a domain/memory issue with mocked providers, outside GTA.
+1. Reproduce a domain/memory issue with stubbed provider clients, outside GTA.
 2. Reproduce microphone/playback behavior with the companion, outside GTA.
 3. Validate the native handshake and PTT events without live providers.
 4. Validate one provider turn without native events.
@@ -794,28 +794,26 @@ At each step, keep one speaker active unless a new arbitration model has been im
 | --- | --- | --- |
 | Build label does not identify a supported executable | Hooks may fail or crash | Hash/version preflight; reject unsupported target before hooking |
 | Existing loader/graphics mods conflict | Instability or failed plugin loading | Inventory and test a minimal setup without discarding user files |
-| Native development takes longer than expected | No in-game integration | Finish mock backend/companion independently; label unintegrated showcase honestly |
+| Native development takes longer than expected | No in-game integration | Finish the browser companion independently; label the unintegrated showcase honestly |
 | Background microphone/audio restrictions | Voice stops when GTA is focused | Preflight with the actual machine; optional companion desktop shell |
 | Pedestrian lifecycle changes | Wrong entity receives a response | Stable app identity plus scene-generation binding and cancellation |
 | Late provider result after reset | Deleted memory reappears | Transactional reset generation checked on every write |
 | Recognition quality is poor | NPC answers the wrong question | Show transcript; offer explicit text correction/input fallback |
 | Speech synthesis is slow/unavailable | Long silence or missing audio | Immediate subtitles and a clearly identified text-only fallback |
 | Long/unbounded history | High cost and slow replies | Bounded context; optional later summaries; no unlimited-recall claims |
-| Live service outage | Demo interruption | Prepared, clearly labeled recording or mock mode |
+| Live service outage | Demo interruption | Prepared, clearly labeled recording or documented offline fallback |
 | Licensing/privacy uncertainty | Public presentation or distribution risk | Review actual agreements and proposed use; do not treat technical success as permission |
 
 ## 17. Immediate next actions
 
-1. Collect executable metadata/hash and existing mod/loader inventory from the Windows machine.
-2. Confirm a safe, documented native target and load a harmless plugin.
-3. Scaffold domain interfaces, one original NPC profile, and a mock-driven controller/registry.
-4. Implement generation-guarded memory and cancellation before adding live speech.
-5. Build the companion's explicit PTT/readiness/playback flow.
-6. Implement the OpenAI brain and ElevenLabs speech adapters when reaching the live integration milestone; do not choose models prematurely.
-7. Integrate the single verified NPC and pass V1 acceptance tests.
-8. Freeze and rehearse the single-NPC demo; consider a second NPC only afterward.
+1. Identify a GTA executable whose verified memory layout is recognized by the proximity scanner, or choose a documented API/interface for this installation.
+2. Run the backend and validate token-authenticated bridge health, selection, typed response, delivery, and cancellation; the attempted local smoke process could not start because desktop policy blocked process creation.
+3. Load the ASI with the installed compatible loader and verify the overlay/key path on a supported executable before relying on proximity behavior.
+4. Perform an opt-in live voice exchange outside GTA and check Malayalam transcription and pronunciation.
+5. Run the in-game proximity, subtitle, audio, cancellation, memory, restart, and reset flow; add native PTT only if the demo requires it.
+6. Rehearse the tested demo; add another NPC only after V1 is stable.
 
-**Additional information needed before native work:** installation source, executable metadata/hash, and existing loader/mod inventory. **Not needed to finish this plan:** exact model, speech model, or voice selection.
+**Automatic proximity remains gated on:** a verified executable layout and a working loader on that executable. The current provider defaults are `gpt-4.1-mini`, ElevenLabs Scribe v2, and Eleven v4. The current local `.env` selects a Malayalam-labeled voice available in the account; no account-specific voice ID or API key is committed. Voice quality has not been checked.
 
 ## 18. External technical and policy references
 

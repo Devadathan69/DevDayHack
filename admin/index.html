@@ -8,9 +8,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="./styles.css" />
-    <link rel="stylesheet" href="./extras.css" />
-    <script src="./app.js" defer></script>
+    <link rel="stylesheet" href="/admin/styles.css" />
+    <link rel="stylesheet" href="/admin/extras.css" />
+    <script src="/admin/app.js" defer></script>
   </head>
   <body>
     <div class="app-shell">
@@ -50,7 +50,7 @@
 
           <section class="profile-strip" aria-label="Selected NPC profile">
             <div class="portrait"><div class="portrait-halo"></div><span class="portrait-initial" id="portraitInitial">M</span><span class="portrait-status"></span></div>
-            <div class="profile-identity"><div class="identity-line"><h2 id="profileName">Manu</h2><span class="tag tag-green"><i></i> LOCAL PROFILE</span><span class="tag tag-muted">MALAYALAM NPC</span></div><p id="profileDescription">A friendly local with a quick wit and a soft spot for snack recommendations.</p><div class="profile-meta"><span><b>●</b> <span id="profileId">demo-npc-001</span></span><span id="updatedAt">◷ Draft saved locally</span><span>♙ Private memory</span></div></div>
+            <div class="profile-identity"><div class="identity-line"><h2 id="profileName">Manu</h2><span class="tag tag-green" id="runtimeTag"><i></i> LOCAL PROFILE</span><span class="tag tag-muted">MALAYALAM NPC</span></div><p id="profileDescription">A friendly local with a quick wit and a soft spot for snack recommendations.</p><div class="profile-meta"><span><b>●</b> <span id="profileId">demo-npc-001</span></span><span id="updatedAt">◷ Draft saved locally</span><span>♙ Private memory</span></div></div>
             <div class="profile-stat"><span class="stat-label">PROFILE COMPLETENESS</span><div class="stat-value"><strong id="completeness">84%</strong><span class="mini-progress"><i id="completenessBar"></i></span></div><small>Looking good</small></div>
             <div class="profile-stat response-stat"><span class="stat-label">RESPONSE STYLE</span><div class="response-chip"><span>≈</span> <span id="responseStyle">Balanced</span></div><small>From your dialogue settings</small></div>
           </section>
@@ -87,7 +87,7 @@
               <section class="panel voice-panel" id="voice">
                 <div class="panel-heading"><div class="section-icon voice-icon">♫</div><div class="panel-title"><div class="section-kicker">03 — THE VOICE</div><h3>Voice & delivery</h3><p>Configure delivery preferences for the voice service.</p></div><span class="tag tag-muted">NOT CONNECTED</span></div>
                 <div class="voice-notice"><span>ⓘ</span><p>These are saved as profile preferences only. Voice selection and playback will work when the backend exposes its voice adapter.</p></div>
-                <div class="voice-grid"><label class="field"><span>VOICE PRESET</span><div class="select-wrap"><select id="voicePreset"><option value="mock-malayalam">Mock Malayalam</option><option value="warm-malayalam">Warm Malayalam (planned)</option><option value="bright-malayalam">Bright Malayalam (planned)</option></select><span>⌄</span></div></label><label class="field"><span>DELIVERY MOOD</span><div class="select-wrap"><select id="voiceMood"><option value="natural">Natural</option><option value="cheerful">Cheerful</option><option value="calm">Calm</option><option value="playful">Playful</option></select><span>⌄</span></div></label></div>
+                <div class="voice-grid"><label class="field"><span>VOICE PRESET</span><div class="select-wrap"><select id="voicePreset"><option value="server-default">Server configured (ElevenLabs)</option><option value="warm-malayalam">Warm Malayalam (planned)</option><option value="bright-malayalam">Bright Malayalam (planned)</option></select><span>⌄</span></div></label><label class="field"><span>DELIVERY MOOD</span><div class="select-wrap"><select id="voiceMood"><option value="natural">Natural</option><option value="cheerful">Cheerful</option><option value="calm">Calm</option><option value="playful">Playful</option></select><span>⌄</span></div></label></div>
                 <div class="range-setting"><div class="setting-copy"><strong>Speaking pace</strong><small>Slower for clarity, faster for energy</small></div><input class="trait-range" id="voiceSpeed" type="range" min="70" max="130" value="100" /><output for="voiceSpeed" id="voiceSpeedValue">100</output></div>
                 <button class="voice-preview-button" id="voicePreviewButton" type="button" disabled>▶ <span>Voice preview unavailable until backend connection</span></button>
               </section>
@@ -101,7 +101,7 @@
                 </div>
                 <div class="toggle-list">
                   <label class="toggle-row"><span><strong>Remember this player</strong><small>Private memory, scoped to player + NPC</small></span><input id="memoryEnabled" class="toggle-input" type="checkbox" checked /><span class="toggle-ui"></span></label>
-                  <label class="toggle-row"><span><strong>React to scene changes</strong><small>Refresh context when the scene changes</small></span><input id="sceneAware" class="toggle-input" type="checkbox" checked /><span class="toggle-ui"></span></label>
+                  <label class="toggle-row"><span><strong>Use scene context</strong><small>Preference only; scene details are not sent to dialogue yet</small></span><input id="sceneAware" class="toggle-input" type="checkbox" checked /><span class="toggle-ui"></span></label>
                   <label class="toggle-row"><span><strong>Allow playful teasing</strong><small>Only when the conversation feels comfortable</small></span><input id="teasing" class="toggle-input" type="checkbox" checked /><span class="toggle-ui"></span></label>
                 </div>
                 <div class="safety-note"><span>◇</span><p><strong>Player-first by design.</strong> These settings shape expression. They never give the NPC permission to issue game commands or bypass player consent.</p></div>

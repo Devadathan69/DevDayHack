@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { isAbortError, validateConversationKey } from "./domain.js";
+import { assertNotAborted, isAbortError, validateConversationKey } from "./domain.js";
 
 export class SessionManager {
   #selection = null;
@@ -12,14 +12,30 @@ export class SessionManager {
     this.state = "IDLE";
   }
 
+  get activeTurnId() {
+    return this.#active?.context.turnId ?? null;
+  }
+
+  get hasSelection() {
+    return this.#selection !== null;
+  }
+
+  get selectedConversationKey() {
+    if (!this.#selection) return null;
+    const { worldId, playerId, npcId } = this.#selection;
+    return { worldId, playerId, npcId };
+  }
+
   selectNpc({ npcId, worldId, playerId, gameSessionId, sceneGeneration }) {
-    if (this.#active) throw new Error("Finish or cancel the current turn before selecting an NPC.");
     const profile = this.registry.getProfile(npcId);
     if (!profile) throw new Error(`NPC '${npcId}' is not configured.`);
     const key = validateConversationKey({ worldId, playerId, npcId });
-    if (typeof gameSessionId !== "string" || gameSessionId.length === 0) throw new Error("A game session ID is required.");
+    if (typeof gameSessionId !== "string" || gameSessionId.trim().length === 0 || gameSessionId.length > 128) throw new Error("A game session ID must contain 1–128 characters.");
     if (!Number.isSafeInteger(sceneGeneration) || sceneGeneration < 0) throw new Error("Scene generation must be a non-negative integer.");
-    this.#selection = { ...key, gameSessionId, sceneGeneration };
+    const selection = { ...key, gameSessionId, sceneGeneration };
+    if (this.#selection && Object.keys(selection).every((field) => this.#selection[field] === selection[field])) return profile;
+    this.cancel("Selected NPC scope changed; the previous turn was discarded.");
+    this.#selection = selection;
     this.#setState("SELECTED");
     return profile;
   }
@@ -43,6 +59,7 @@ export class SessionManager {
         if (this.#active === active) this.#setState(state, turnContext);
       })
       .then((result) => {
+        assertNotAborted(abortController.signal);
         if (this.#active === active) {
           active.result = result;
         }
@@ -62,6 +79,9 @@ export class SessionManager {
   async acknowledgeDelivery(receipt) {
     const active = this.#active;
     if (!active?.result) throw new Error("There is no completed reply awaiting delivery acknowledgement.");
+    if (receipt?.audioPlayed === true && active.result.audio?.playable !== true) {
+      throw new Error("This reply has no playable audio to acknowledge.");
+    }
     await this.registry.get(active.context.npcId).acknowledgeDelivery(active.context, receipt);
     if (this.#active === active) {
       this.#active = null;
@@ -69,8 +89,8 @@ export class SessionManager {
     }
   }
 
-  cancel(reason = "Conversation cancelled.") {
-    if (!this.#active) return false;
+  cancel(reason = "Conversation cancelled.", turnId = this.activeTurnId) {
+    if (!this.#active || this.activeTurnId !== turnId) return false;
     const active = this.#active;
     this.#active = null;
     active.abortController.abort(new DOMException(reason, "AbortError"));

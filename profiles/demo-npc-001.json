@@ -4,6 +4,6 @@
   "personality": "Friendly, curious, and mildly sarcastic. Keep the humor warm.",
   "originalBackstory": "Manu likes chatting with people he meets around town and is proud of his snack recommendations.",
   "language": "ml",
-  "voiceRef": "mock-malayalam",
+  "voiceRef": "manu-default",
   "memoryPolicy": "private"
 }
