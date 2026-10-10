@@ -21,6 +21,7 @@ if (-not (Test-Path -LiteralPath $vsDevCmd)) {
 
 $sourcePath = Join-Path $nativeRoot "src\bootstrap.cpp"
 $overlaySourcePath = Join-Path $nativeRoot "src\d3d-overlay.cpp"
+$holdSourcePath = Join-Path $nativeRoot "src\ped-hold.cpp"
 $outputPath = Join-Path $buildDirectory "MalayalamNpcBootstrap.asi"
 $importLibraryPath = Join-Path $buildDirectory "MalayalamNpcBootstrap.lib"
 $commandFile = Join-Path $buildDirectory "build-native.cmd"
@@ -31,7 +32,7 @@ call "$vsDevCmd" -no_logo -arch=x86 -host_arch=x64
 if errorlevel 1 exit /b %errorlevel%
 cd /d "$buildDirectory"
 if errorlevel 1 exit /b %errorlevel%
-cl.exe /nologo /LD /MT /EHsc /std:c++17 /W4 /DUNICODE /D_UNICODE /Fe:"$outputPath" "$sourcePath" "$overlaySourcePath" /link /MACHINE:X86 /IMPLIB:"$importLibraryPath" d3d9.lib user32.lib
+cl.exe /nologo /LD /MT /EHsc /std:c++17 /W4 /DUNICODE /D_UNICODE /Fe:"$outputPath" "$sourcePath" "$overlaySourcePath" "$holdSourcePath" /link /MACHINE:X86 /IMPLIB:"$importLibraryPath" d3d9.lib user32.lib
 exit /b %errorlevel%
 "@
 

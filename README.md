@@ -77,7 +77,7 @@ To check repeated speech without another provider call, supply an existing test 
 npm run test:native -- -AudioFile 'C:\Temp\test-reply.mp3'
 ```
 
-This additionally reproduces MCI's file-lock/thread-local alias behavior and tests the actual production audio dispatcher across five separate turn workers, cancellation and stale requests. No speech fixture is bundled or committed. Direct3D GPU smoke tests and their build commands are documented in the integration guide.
+This additionally reproduces MCI's file-lock/thread-local alias behavior and tests the actual production audio dispatcher across five separate turn workers, cancellation and stale requests. No speech fixture is bundled or committed. Direct3D GPU smoke tests and their build commands are documented in the integration guide. `npm run test:native -- -Renderer` also builds/runs them through the native runner. Native regression checks now include the reversible NPC hold utility; microphone and expanded persona integration are a separate in-progress change, not a claim about this utility checkpoint.
 
 Native checks/builds require Visual Studio's Desktop development with C++ workload. Builds do not change game files; installation is a separate explicit command.
 

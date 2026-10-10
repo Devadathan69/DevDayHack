@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-11T02:53:24+05:30 — Checkpoint reversible pedestrian hold and game-thread hooks
+
+- Changed: Added the native pedestrian hold utility and x86 regression fixtures, plus a Direct3D game-frame callback that runs on the device-owning thread and remains available for restoration after renderer shutdown. Native build/test scripts compile the utility and expose optional `-Renderer` smoke checks.
+- Why: Conversation participants must stop walking, face CJ and resume safely without replacing/deleting their existing game-owned AI tasks. Game memory changes cannot run on HTTP or overlay worker threads.
+- Validation: `npm run test:native -- -GameExecutable '..\Grand Theft Auto San Andreas\gta-sa.exe' -Renderer` passed hold/facing/restoration, recycled-slot/model/area/range/vehicle/death exclusions and fault rollback; the GPU hosts passed 63/64 checks including callback thread/helper/shutdown behavior. The working-tree integration also built successfully and the user reported interaction working, but that unfinished integration is not part of this utility checkpoint.
+- Limitations/state: Per-model gender correction, named male/female voice pools, removal of the default turn cap and newly requested hold-R speech-to-text are still being integrated and are not claimed verified by this checkpoint. Existing native/voice integration edits remain in the working tree; source review pending.
+
 ## 2026-10-11T01:52:48+05:30 — Deliver nearby in-game interaction with repeatable spoken subtitles
 
 - Changed: Added a native Direct3D9 in-frame popup/subtitle renderer with state restoration, Reset handling, actual presentation acknowledgement and GPU smoke hosts. Added guarded support for the installed 2014 executable's ASLR-relocated player/pool references while retaining the classic 1.0 US gate. Nearest living/on-foot/same-area selection is pinned to a generation-bearing pool handle and scene epoch; scene loading is transient, and leaving range, removal, vehicles, Escape or focus loss cancels the conversation. F6/Enter opens typed input without an automatic paid greeting; held send keys are debounced.

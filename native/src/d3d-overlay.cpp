@@ -36,6 +36,7 @@ constexpr unsigned kPresentSlot = 17;
 constexpr unsigned kEndSceneSlot = 42;
 constexpr ULONGLONG kRecentFrameMs = 1000;
 constexpr std::size_t kMaximumFrameBytes = 256u * 1024u * 1024u;
+std::atomic<NpcD3D::GameFrameCallback> gameFrameCallback{nullptr};
 
 IDirect3D9* WINAPI HookCreate9(UINT version);
 HRESULT STDMETHODCALLTYPE HookCreateDevice(IDirect3D9* factory, UINT adapter,
@@ -612,13 +613,17 @@ HRESULT STDMETHODCALLTYPE HookEndScene(IDirect3DDevice9* device) {
     DeviceHookScope scope;
     State& state = GetState();
     ExclusiveLock lock(state.renderLock);
+    HWND window = nullptr;
+    UINT width = 0, height = 0;
+    const bool gameFrame = GameBackbuffer(device, window, width, height);
+    if (gameFrame) {
+        const auto callback = gameFrameCallback.load();
+        if (callback) callback();
+    }
     if (!state.enabled.load()) {
         ForgetDevice(state);
         return hooks->endScene(device);
     }
-    HWND window = nullptr;
-    UINT width = 0, height = 0;
-    const bool gameFrame = GameBackbuffer(device, window, width, height);
     bool drawn = false;
     if (gameFrame) {
         if (state.renderDevice != device) ForgetDevice(state);
@@ -733,6 +738,10 @@ bool RecentFrame(const State& state) {
 }
 
 namespace NpcD3D {
+void SetGameFrameCallback(GameFrameCallback callback) {
+    gameFrameCallback.store(callback);
+}
+
 bool Initialize() {
     try {
         State& state = GetState();
