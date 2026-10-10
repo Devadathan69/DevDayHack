@@ -10,8 +10,15 @@ import { SessionManager } from "./session-manager.js";
 const profilePath = new URL("../../profiles/demo-npc-001.json", import.meta.url);
 const profile = JSON.parse(await readFile(fileURLToPath(profilePath), "utf8"));
 const memory = new InMemoryMemoryStore();
+const emit = (event) => {
+  if (event.type === "transcript.ready") {
+    stdout.write(`Heard: ${event.text}\n`);
+  } else if (event.type === "dialogue.reply") {
+    stdout.write(`${profile.displayName} [dialogue box]: ${event.replyMl}\n`);
+  }
+};
 const manager = new SessionManager({
-  registry: new NpcRegistry([profile], { ...createMockProviders(), memory }),
+  registry: new NpcRegistry([profile], { ...createMockProviders(), memory, events: emit }),
   memory,
   events: ({ state }) => {
     if (["TRANSCRIBING", "THINKING", "SYNTHESIZING"].includes(state)) stdout.write(`  [${state.toLowerCase()}]\n`);
@@ -48,11 +55,9 @@ try {
 
     try {
       const result = await manager.startTurn({ text: input });
-      stdout.write(`Heard: ${result.transcript.text}\n`);
-      stdout.write(`${selected.displayName}: ${result.reply.replyMl}\n`);
       if (result.speechError) stdout.write(`Speech unavailable: ${result.speechError}\n`);
       else stdout.write("[Mock voice: no audio generated]\n");
-      await manager.acknowledgeDelivery({ subtitleDisplayed: true, audioPlayed: false });
+      await manager.acknowledgeDelivery({ dialogueBoxDisplayed: true, audioPlayed: false });
       stdout.write("\n");
     } catch (error) {
       stdout.write(`Turn failed: ${error.message}\n\n`);

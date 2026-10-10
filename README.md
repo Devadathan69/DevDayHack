@@ -9,14 +9,14 @@ DevDay Exchange Community Hackathon: Kochi, 10–11 October 2026 at JAIN Univers
 ## Current implementation
 
 - One original character profile (`Manu`) is validated and instantiated through a reusable NPC registry/controller.
-- The CLI accepts typed Malayalam as mock speech input, runs a mock dialogue response, and acknowledges a mock reply-display delivery event.
+- The CLI accepts typed Malayalam as mock speech input, emits transcript and `dialogue.reply` events in order, and acknowledges mock dialogue-box delivery. The reply event is emitted before TTS finishes so a game UI can display the text independently of audio.
 - The in-memory store scopes recent delivered dialogue by world, player, and NPC. The mock can recall the previous delivered player message when asked.
 - Turn IDs, cancellation, scene invalidation, reset generations, response validation, and single-turn ownership are represented in the backend.
 - Mock providers can be configured for delays, cancellation, malformed results, and stage failures for future development checks.
 
 The CLI does **not** record or play audio. The response is explicitly labeled as a mock; memory lasts only until the process exits. There is no live OpenAI or ElevenLabs integration, SQLite persistence, companion web UI, or GTA plugin yet. The installed game executable and mod-loader compatibility have not been verified.
 
-The planned GTA integration uses configurable interaction and push-to-talk keys and displays backend reply text in a separate in-game dialogue box. The text is intended to appear independently of ElevenLabs audio generation/playback. These controls and the in-game box are not implemented in the current CLI milestone; see [plan.md](plan.md) and [game integration instructions](docs/game-integration.md).
+The planned GTA integration uses configurable interaction and push-to-talk keys and displays backend reply text in a separate in-game dialogue box. The backend now emits reply events before TTS completes, but the game bridge, key detection, and in-game box are not implemented in the current milestone. See [plan.md](plan.md) and [game integration instructions](docs/game-integration.md).
 
 Provider credentials in `.env` are not consumed by this CLI; setting them does not turn the mock demo into a live conversation. See [game integration instructions](docs/game-integration.md) for the staged Windows setup; do not install a plugin based on an unverified executable label.
 

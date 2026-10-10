@@ -59,11 +59,11 @@ export class InMemoryMemoryStore {
     const scope = this.#assertGeneration(safeContext);
     const turn = scope.turns.get(safeContext.turnId);
     if (!turn?.replyMl) throw new Error("Cannot acknowledge a reply that was not generated.");
-    if (receipt?.subtitleDisplayed !== true && receipt?.audioPlayed !== true) {
-      throw new Error("Delivery requires visible subtitles or confirmed audio playback.");
+    if (receipt?.dialogueBoxDisplayed !== true && receipt?.audioPlayed !== true) {
+      throw new Error("Delivery requires a displayed dialogue box or confirmed audio playback.");
     }
     turn.delivery = {
-      subtitleDisplayed: receipt.subtitleDisplayed === true,
+      dialogueBoxDisplayed: receipt.dialogueBoxDisplayed === true,
       audioPlayed: receipt.audioPlayed === true,
       deliveredAt: Date.now(),
     };

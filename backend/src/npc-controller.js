@@ -18,6 +18,15 @@ export class NpcController {
     this.#emit(turn, "TRANSCRIBING", onState);
     const transcript = validateTranscript(await this.dependencies.stt.transcribe(audioInput, signal));
     assertNotAborted(signal);
+    this.events({
+      type: "transcript.ready",
+      npcId: turn.npcId,
+      turnId: turn.turnId,
+      gameSessionId: turn.gameSessionId,
+      sceneGeneration: turn.sceneGeneration,
+      text: transcript.text,
+      language: transcript.language,
+    });
     await this.dependencies.memory.recordAcceptedInput(turn, transcript.text);
 
     this.#emit(turn, "THINKING", onState);
@@ -32,6 +41,17 @@ export class NpcController {
     }, signal));
     assertNotAborted(signal);
     await this.dependencies.memory.recordGeneratedReply(turn, reply);
+    assertNotAborted(signal);
+
+    this.events({
+      type: "dialogue.reply",
+      npcId: turn.npcId,
+      turnId: turn.turnId,
+      gameSessionId: turn.gameSessionId,
+      sceneGeneration: turn.sceneGeneration,
+      memoryGeneration: turn.memoryGeneration,
+      replyMl: reply.replyMl,
+    });
 
     this.#emit(turn, "SYNTHESIZING", onState);
     let audio = null;

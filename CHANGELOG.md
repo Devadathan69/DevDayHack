@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-10T23:17:56+05:30 — Emit reply text before speech synthesis
+
+- Changed: Updated the NPC controller to emit `transcript.ready` and `dialogue.reply` events before the TTS stage, and changed the mock CLI and memory delivery receipt to model dialogue-box display. Updated the README.
+- Why: Let a future GTA dialogue box display the validated backend reply without waiting for ElevenLabs audio generation or playback.
+- Validation: `npm run check`, a one-turn Malayalam mock CLI walkthrough, and `git diff --check` passed. The walkthrough showed transcript, dialogue reply, then TTS status.
+- Limitations: The CLI is still mock-only. No GTA plugin, game key polling, native event transport, actual in-game box, or Malayalam game renderer exists. Exact executable compatibility remains unverified.
+
 ## 2026-10-10T23:01:31+05:30 — Specify configurable GTA controls and dialogue box
 
 - Changed: Updated `plan.md`, `docs/game-integration.md`, and `README.md` to specify configurable interaction/PTT keys, suggested E/V defaults pending compatibility checks, and a separate in-game dialogue box that displays backend text independently of TTS playback.
