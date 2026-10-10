@@ -14,7 +14,7 @@ DevDay Exchange Community Hackathon: Kochi, 10–11 October 2026 at JAIN Univers
 - Turn IDs, cancellation, scene invalidation, reset generations, response validation, and single-turn ownership are represented in the backend.
 - Mock providers can be configured for delays, cancellation, malformed results, and stage failures for future development checks.
 
-The CLI does **not** record or play audio. The response is explicitly labeled as a mock; memory lasts only until the process exits. There is no live OpenAI or ElevenLabs integration, SQLite persistence, companion web UI, or GTA plugin yet. The installed game executable and mod-loader compatibility have not been verified.
+The CLI does **not** record or play audio. The response is explicitly labeled as a mock; memory lasts only until the process exits. There is no live OpenAI or ElevenLabs integration, SQLite persistence, backend-connected profile editor, or GTA plugin yet. The installed game executable and mod-loader compatibility have not been verified.
 
 Provider credentials in `.env` are not consumed by this CLI; setting them does not turn the mock demo into a live conversation. See [game integration instructions](docs/game-integration.md) for the staged Windows setup; do not install a plugin based on an unverified executable label.
 
@@ -27,6 +27,10 @@ npm run demo
 ```
 
 Type Malayalam into the prompt. Ask `മുമ്പ് ഞാൻ എന്താണ് പറഞ്ഞത്?` after a turn to exercise the mock recall path. Use `/reset` to clear this process's NPC memory and `/quit` to exit.
+
+## Open the NPC admin dashboard
+
+Open `admin/index.html` in a modern browser. The editor lets you customize Manu's traits, dialogue settings, and behavior profile, and updates the mock conversation preview as you edit. Drafts are saved in that browser's local storage. Use **Export profile** to download a JSON profile; this does not update the backend profile or connect the settings to GTA. The dashboard uses Google Fonts when network access is available and falls back to system fonts offline.
 
 Run a JavaScript syntax check with:
 
@@ -41,7 +45,7 @@ This syntax check is not a test suite and does not verify live providers, storag
 - **Project name:** Malayalam NPC Demo
 - **Short description:** A profile-driven backend foundation for talking to and remembering a Malayalam-speaking game NPC.
 - **Technology:** Node.js ES modules and built-in libraries; no third-party packages in this milestone.
-- **Working demo:** Run the mock CLI as described above.
+- **Working demo:** Run the mock CLI or open the browser dashboard as described above.
 - **Libraries, APIs, and datasets:** Node.js built-in modules only so far. No external API or dataset is used by the mock demo.
 
 See [plan.md](plan.md) for the architecture and milestone gates, [docs/game-integration.md](docs/game-integration.md) for the future native integration procedure, [CHANGELOG.md](CHANGELOG.md) for implementation history, and [AI_USAGE.md](AI_USAGE.md) for assistance records. [SUBMISSION.md](SUBMISSION.md) is still in progress; participant and repository details must be completed before submission.

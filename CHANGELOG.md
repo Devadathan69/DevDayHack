@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-10T22:33:29+05:30 — Add NPC personality admin dashboard
+
+- Changed: Added a responsive browser-based profile editor with trait and dialogue controls, behavior settings, live mock preview, browser-local drafts, reset, and JSON export. Updated the README and syntax-check command.
+- Why: Make the NPC profile easier to customize and inspect without implying that backend/game integration is complete.
+- Validation: `npm run check` and `git diff --check` passed.
+- Limitations: Drafts stay in browser local storage; exports do not update the backend profile automatically. Dialogue preview and voice are mock-only.
+
 ## 2026-10-10T22:10:50+05:30 — Verify provider credentials and document game setup
 
 - Changed: Added `docs/game-integration.md`, linked it from the README, and recorded the local provider-authentication result in project records.
