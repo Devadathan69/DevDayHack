@@ -1,6 +1,6 @@
 # Integrate the companion with GTA San Andreas
 
-This is the planned Windows integration procedure for the **classic PC** game. It is an implementation guide, not a claim that this repository already has a native plugin. Today, the repository has a mock CLI and backend only: it does not build an ASI, inspect game entities, send bridge messages, or alter the game installation.
+This is the staged Windows integration procedure for the **classic PC** game. The repository has a mock CLI/backend and a standalone x86 ASI lifecycle smoke-test plugin in `native/src/bootstrap.cpp`. The plugin can be built with `native/build.ps1`; it only logs initialization/shutdown and does not hook game APIs, inspect entities, send bridge messages, or implement NPC behavior. Its exports passed a load check in an x86 host process. It has not been installed into the game.
 
 The local `.env` was checked on 10 October 2026: OpenAI and ElevenLabs returned HTTP 200 to authentication/account-read requests. Those checks did not generate text or audio. The current CLI does not load these variables and still uses mock providers.
 
@@ -23,6 +23,18 @@ Get-ChildItem -LiteralPath $exe.DirectoryName -File |
 
 Record the Windows version, installation source, executable metadata/hash, and any existing ASI loader, graphics wrapper, or `.asi` files. Keep paths and hashes in a local compatibility note if you do not want them public. This information is a precondition for choosing an SDK target and loader proxy; it does not by itself prove that a hook is compatible.
 
+### Current local preflight record
+
+Read-only inspection on 10 October 2026 found a 5,971,456-byte x86 PE named `gta-sa.exe`. Its `FileVersion`, `ProductVersion`, and `OriginalFilename` fields are blank. The adjacent `installscript.vdf` refers to `gta_sa.exe`, so the name mismatch needs explanation; do not rename or patch the executable to make it fit a guide. The user reports that this is an official copy, but the executable version and Plugin-SDK compatibility remain unverified. No root-level `.asi` plugin or `dinput8.dll` was found. An existing `xinput1_3.dll` must not be overwritten.
+
+The executable SHA-256 was collected for local compatibility tracking and is intentionally not published in this repository. The x86 ASI build and export check prove only that the plugin binary matches the process architecture; they do not identify the game's supported version.
+
+### Build and inspect the no-op plugin
+
+Run `powershell -NoProfile -File .\native\build.ps1`. This uses the installed Visual Studio x86 toolchain and writes an ignored artifact to `native/build/MalayalamNpcBootstrap.asi`. It does not require Plugin-SDK because the smoke plugin calls no GTA APIs. It appends lifecycle events under `%LOCALAPPDATA%\MalayalamNpcDemo\logs\game-bridge.log` and performs no gameplay work.
+
+The local build was inspected as x86 and exported `InitializeASI` and `ShutdownASI`; an x86 host process loaded it and invoked both exports successfully. The in-game smoke test remains incomplete.
+
 ## 2. Build and validate a harmless ASI first
 
 1. Follow the [Plugin-SDK setup](https://github.com/DK22Pac/plugin-sdk/wiki/Set-up-plugin-sdk) and [new-plugin guide](https://github.com/DK22Pac/plugin-sdk/wiki/Creating-a-new-plugin-in-plugin-sdk). Select the GTA San Andreas target and build architecture that match the verified executable. Plugin-SDK lists San Andreas among its supported game families, but the installed executable still needs a compatibility check.
@@ -37,6 +49,8 @@ References: [Plugin-SDK README](https://github.com/DK22Pac/plugin-sdk) · [Ultim
 The [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader) accepts `.asi` plugins and supports several proxy DLL names. The correct proxy name and architecture depend on the actual game executable and existing installation. Do not rename a downloaded proxy to `dinput8.dll` (or another name) just because a generic guide says to; first check the loader's current supported-name list and check whether that DLL already belongs to another mod or wrapper.
 
 Before installing, make a manifest of only the files this project will add or replace. Back up any file that must be replaced. If an existing loader is present, determine how it loads plugins and test the no-op plugin through that setup before adding another loader. Never overwrite an unknown proxy DLL.
+
+For the current x86 target, Ultimate ASI Loader v9.7.4's official no-PDB x86 release archive was hash-checked (`14b3a1ad018899571ac9aa01482977f3c6d49e6cba99f552d01c5acacd1315e1`). It contains `dinput8.dll`, and that filename is absent from the inspected game root. This is only a selected candidate; no loader or ASI was installed into the game during this session.
 
 ## 4. Add the native adapter in small steps
 

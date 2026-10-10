@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-10T22:30:09+05:30 — Build native lifecycle smoke plugin
+
+- Changed: Added a dependency-free x86 ASI bootstrap and Visual Studio build script under `native/`; ignored native build artifacts; updated the README and integration guide with the current preflight and plugin status; recorded the actual Codex assistance.
+- Why: Begin the native integration in the guide's safe order with a no-op lifecycle plugin before using game APIs or adding hooks.
+- Validation: `native/build.ps1` built a 120,832-byte x86 ASI. `dumpbin` confirmed the x86 machine type and `InitializeASI`/`ShutdownASI` exports. An x86 host process loaded the plugin and called both exports successfully. The official Ultimate ASI Loader v9.7.4 x86 archive matched the release SHA-256. The attempted copy into the external game folder was rejected by the desktop tool policy; no game files were changed.
+- Limitations: The plugin has not been loaded by the game's ASI loader. The executable's version fields are blank and its filename differs from the adjacent install script; gameplay compatibility, backend transport, live providers, memory persistence, and in-game NPC behavior remain unimplemented.
+
 ## 2026-10-10T22:10:50+05:30 — Verify provider credentials and document game setup
 
 - Changed: Added `docs/game-integration.md`, linked it from the README, and recorded the local provider-authentication result in project records.

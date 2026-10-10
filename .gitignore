@@ -2,6 +2,13 @@
 .env
 .env.*
 !.env.example
+native/build/
+native/third_party/
+*.asi
+*.pdb
+*.ilk
+*.exp
+*.lib
 !.env.*.example
 *.pem
 *.key
