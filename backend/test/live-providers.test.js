@@ -36,6 +36,79 @@ test("live adapters send audio to Scribe and request ElevenLabs audio without lo
   }
 });
 
+test("speech profiles use only configured male/female voices and keep neutral/default behavior", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url: String(url), options });
+    return new Response(new Uint8Array([1]), { headers: { "Content-Type": "audio/mpeg" } });
+  };
+  try {
+    const voicedConfig = { ...config, elevenLabsMaleVoiceId: "test-male-voice", elevenLabsFemaleVoiceId: "test-female-voice" };
+    const providers = createLiveProviders(voicedConfig);
+    for (const [voiceRef, expected] of [["configured-male", "test-male-voice"], ["configured-female", "test-female-voice"],
+      ["manu-default", "test-voice"], [undefined, "test-voice"], ["arbitrary-caller-voice-id", "test-voice"],
+      ["test-male-voice", "test-voice"]]) {
+      await providers.tts.synthesize({ text: "നമസ്കാരം", voiceRef }, new AbortController().signal);
+      assert.equal(calls.at(-1).url, `https://api.elevenlabs.io/v1/text-to-speech/${expected}?output_format=mp3_44100_128`);
+      assert.equal(calls.at(-1).options.headers["xi-api-key"], config.elevenLabsApiKey);
+    }
+    for (const voiceRef of ["configured-male", "configured-female"]) {
+      await createLiveProviders(config).tts.synthesize({ text: "നമസ്കാരം", voiceRef }, new AbortController().signal);
+      assert.match(calls.at(-1).url, /text-to-speech\/test-voice\?/u);
+    }
+    await createLiveProviders({ ...config, elevenLabsMaleVoiceId: "test-male-voice" }).tts.synthesize({
+      text: "നമസ്കാരം", voiceRef: "configured-female",
+    }, new AbortController().signal);
+    assert.match(calls.at(-1).url, /text-to-speech\/test-voice\?/u);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("named voice pool aliases resolve only approved account entries", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url) => {
+    calls.push(String(url));
+    return new Response(new Uint8Array([1]), { headers: { "Content-Type": "audio/mpeg" } });
+  };
+  const pools = { ...config,
+    elevenLabsMaleVoices: [{ name: "Miyan", voiceId: "test-miyan" }, { name: "Adith", voiceId: "test-adith" },
+      { name: "DT", voiceId: "test-dt-voice" }, { name: "Damu", voiceId: "test-damu" }],
+    elevenLabsFemaleVoices: [{ name: "Manju", voiceId: "test-manju" }] };
+  try {
+    const providers = createLiveProviders(pools);
+    for (const [voiceRef, voiceId] of [["configured-male-0", "test-miyan"], ["configured-male-1", "test-adith"],
+      ["configured-male-2", "test-dt-voice"], ["configured-male-3", "test-damu"], ["configured-female-0", "test-manju"],
+      ["configured-male", "test-miyan"], ["configured-female", "test-manju"], ["manu-default", "test-voice"],
+      ["configured-male-99", "test-voice"], ["configured-male-01", "test-voice"], ["test-manju", "test-voice"],
+      ["configured-male-0/private", "test-voice"]]) {
+      await providers.tts.synthesize({ text: "നമസ്കാരം", voiceRef }, new AbortController().signal);
+      assert.equal(calls.at(-1), `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`);
+    }
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("override voice failures never echo voice IDs, credentials or provider messages", async () => {
+  const originalFetch = globalThis.fetch;
+  const voicedConfig = { ...config, elevenLabsMaleVoiceId: "test-private-male-id", elevenLabsFemaleVoiceId: "test-private-female-id" };
+  globalThis.fetch = async () => new Response(JSON.stringify({ detail: {
+    status: "voice_not_found", message: `${voicedConfig.elevenLabsMaleVoiceId} ${voicedConfig.elevenLabsFemaleVoiceId} ${config.elevenLabsApiKey}`,
+  } }), { status: 404 });
+  try {
+    for (const voiceRef of ["configured-male", "configured-female"]) {
+      await assert.rejects(createLiveProviders(voicedConfig).tts.synthesize({ text: "നമസ്കാരം", voiceRef }, new AbortController().signal), (error) => {
+        assert.match(error.message, /ELEVENLABS_MALE_VOICE_ID\/ELEVENLABS_FEMALE_VOICE_ID/u);
+        assert.doesNotMatch(error.message, /test-private|test-elevenlabs-key/u);
+        return true;
+      });
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("MP3 microphone uploads retain an MP3 filename", async () => {
   const originalFetch = globalThis.fetch;
   let file;

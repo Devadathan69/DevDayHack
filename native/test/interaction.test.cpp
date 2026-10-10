@@ -2,6 +2,7 @@
 #include <Windows.h>
 #include "..\src\interaction.h"
 #include "..\src\game-layout.h"
+#include "..\src\ped-metadata.h"
 #include "..\src\audio-file.h"
 #pragma comment(lib, "winmm.lib")
 #include <cassert>
@@ -61,9 +62,54 @@ void TestInteraction() {
     assert(!DeadlineReached(9, 10));
     assert(DeadlineReached(10, 0xFFFFFFF0));
     assert(!DeadlineReached(0xFFFFFFF0, 10));
+    npc.pedType = 4;
+    assert(std::string(Gender(npc)) == "male");
+    npc.pedType = 5;
+    assert(std::string(Gender(npc)) == "female");
+    npc.pedType = 6;
+    assert(std::string(Gender(npc)) == "unknown");
+    npc.pedType = 4;
+    npc.modelGender = 2;
+    assert(std::string(Gender(npc)) == "female");
+    assert(std::string(ModelGender(npc)) == "female");
+    npc.pedType = 5;
+    npc.modelGender = 1;
+    assert(std::string(Gender(npc)) == "male");
     assert(!IsConversation(0) && !IsConversation(1));
-    for (unsigned state = 2; state <= 7; ++state) assert(IsConversation(state));
+    for (unsigned state = 2; state <= 8; ++state) assert(IsConversation(state));
+    assert(IsRecordTap(179) && !IsRecordTap(180));
+    assert(!RecordHoldReady(279, 100) && RecordHoldReady(280, 100));
+    assert(RecordHoldReady(164, 0xFFFFFFF0));
     std::puts("Interaction checks passed (radius, identity, health, vehicles, area, timers).");
+}
+
+void TestModelMetadata() {
+    const auto table = NpcPedMetadata::Parse(
+        "# synthetic model metadata, not game assets\n"
+        "peds\n"
+        "1, fixture, fixture, CIVFEMALE, DEFAULT, generic\n"
+        "2, fixture, fixture, CIVMALE, DEFAULT, man\n"
+        "3, fixture, fixture, SPECIAL, DEFAULT, woman\n"
+        "4, fixture, fixture, CIVMALE, DEFAULT, busywoman\n"
+        "5, fixture, fixture, SPECIAL, DEFAULT, manager\n"
+        "6, fixture, fixture,  civfemale , DEFAULT, generic # comment\n"
+        "7, fixture, fixture, CIVFEMALE, DEFAULT, generic\n"
+        "7, fixture, fixture, CIVMALE, DEFAULT, man\n"
+        "-1, fixture, fixture, CIVFEMALE, DEFAULT, woman\n"
+        "65536, fixture, fixture, CIVFEMALE, DEFAULT, woman\n"
+        "99999999999999999999999, fixture, fixture, CIVFEMALE, DEFAULT, woman\n"
+        "8broken, fixture, fixture, CIVFEMALE, DEFAULT, woman\n"
+        "9, incomplete\n"
+        "10, bfyfixture, fixture, SPECIAL, DEFAULT, pro\n"
+        "11, swfyfixture, fixture, CIVMALE, DEFAULT, pro\n"
+        "12, wmyfixture, fixture, SPECIAL, DEFAULT, neutral\n"
+        "13, customname, fixture, SPECIAL, DEFAULT, pro\n"
+        "14, af_custom, fixture, SPECIAL, DEFAULT, neutral\nend\n");
+    assert(table[1] == 2 && table[2] == 1 && table[3] == 2 && table[4] == 2);
+    assert(table[5] == 0 && table[6] == 2 && table[7] == 1 && table[8] == 0 && table[9] == 0);
+    assert(table[0] == 0 && table[65535] == 0);
+    assert(table[10] == 2 && table[11] == 2 && table[12] == 1 && table[13] == 0 && table[14] == 0);
+    std::puts("Model gender tests passed: stock stems/asset/animation priority, neutral fallback and malformed rows.");
 }
 
 void TestFingerprint() {
@@ -86,7 +132,15 @@ void TestFingerprint() {
         assert(MatchesInstalled(InstalledEntry, InstalledImageSize, player.data(), pool.data(), runtimeBase));
         assert(!MatchesInstalled(InstalledEntry, InstalledImageSize, player.data(), pool.data()));
     }
-    std::puts("Fingerprint checks passed (ASLR relocation; reject changed globals, stride, entry and image size).");
+    std::vector<unsigned char> standing(StandstillCode, StandstillCode + sizeof(StandstillCode));
+    std::vector<unsigned char> taskType(StandstillTaskType, StandstillTaskType + sizeof(StandstillTaskType));
+    assert(MatchesStandstill(standing.data(), taskType.data()));
+    standing[14] ^= 1;
+    assert(!MatchesStandstill(standing.data(), taskType.data()));
+    standing[14] ^= 1;
+    taskType[1] ^= 1;
+    assert(!MatchesStandstill(standing.data(), taskType.data()));
+    std::puts("Fingerprint checks passed (ASLR relocation; globals, pool stride and standstill task code).");
 }
 
 void VerifyInstalled(const char* path) {
@@ -117,7 +171,22 @@ void VerifyInstalled(const char* path) {
     using namespace NpcGameLayout;
     assert(MatchesInstalled(nt->OptionalHeader.AddressOfEntryPoint, nt->OptionalHeader.SizeOfImage,
         codeAt(PlayerCodeAddress, sizeof(PlayerCode)), codeAt(PoolCodeAddress, sizeof(PoolCode))));
-    std::puts("Installed executable matches both player/pool code fingerprints (read-only verification).");
+    assert(MatchesStandstill(codeAt(StandstillProcessAddress, sizeof(StandstillCode)),
+        codeAt(StandstillTaskTypeAddress, sizeof(StandstillTaskType))));
+    std::puts("Installed executable matches player, pool and standstill-task fingerprints (read-only verification).");
+    const std::string executable(path);
+    const auto separator = executable.find_last_of('\\');
+    if (separator != std::string::npos) {
+        std::ifstream metadata(executable.substr(0, separator) + "\\data\\peds.ide", std::ios::binary);
+        if (metadata) {
+            const std::string text{std::istreambuf_iterator<char>(metadata), std::istreambuf_iterator<char>()};
+            const auto genders = NpcPedMetadata::Parse(text);
+            const auto male = std::count(genders.begin(), genders.end(), 1);
+            const auto female = std::count(genders.begin(), genders.end(), 2);
+            assert(male > 0 && female > 0);
+            std::printf("Installed model metadata: %d male and %d female labels recognised (no asset data copied).\n", male, female);
+        }
+    }
 }
 
 void TestRepeatedAudio(const char* path) {
@@ -171,6 +240,7 @@ void TestRepeatedAudio(const char* path) {
 
 int main(int argc, char** argv) {
     TestInteraction();
+    TestModelMetadata();
     TestFingerprint();
     if (argc > 1 && argv[1][0] != '-') VerifyInstalled(argv[1]);
     if (argc > 2) TestRepeatedAudio(argv[2]);

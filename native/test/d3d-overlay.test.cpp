@@ -15,6 +15,12 @@
 
 static int failures = 0;
 static int checks = 0;
+static std::atomic<unsigned> gameCallbacks{0};
+static std::atomic<DWORD> callbackThread{0};
+static void OnGameFrame() {
+    callbackThread.store(GetCurrentThreadId());
+    gameCallbacks.fetch_add(1);
+}
 static void Check(bool condition, const char* message) {
     ++checks;
     if (!condition) { std::printf("FAIL: %s\n", message); ++failures; }
@@ -93,6 +99,7 @@ int main() {
     pp.Windowed = TRUE; pp.SwapEffect = D3DSWAPEFFECT_DISCARD; pp.hDeviceWindow = window;
     pp.BackBufferWidth = 64; pp.BackBufferHeight = 48; pp.BackBufferFormat = D3DFMT_UNKNOWN;
     pp.PresentationInterval = D3DPRESENT_INTERVAL_IMMEDIATE;
+    NpcD3D::SetGameFrameCallback(OnGameFrame);
     HWND helper = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, wc.lpszClassName, L"",
         WS_POPUP, 0, 0, 1, 1, nullptr, nullptr, instance, nullptr);
     IDirect3DDevice9* helperDevice = nullptr;
@@ -110,6 +117,7 @@ int main() {
         helperDevice->Release();
     }
     if (helper) DestroyWindow(helper);
+    Check(gameCallbacks.load() == 0, "hidden helper does not execute game-state callback");
     IDirect3DDevice9* device = nullptr;
     Check(SUCCEEDED(factory->CreateDevice(0, D3DDEVTYPE_HAL, window,
         D3DCREATE_SOFTWARE_VERTEXPROCESSING | D3DCREATE_FPU_PRESERVE, &pp, &device)), "create real validation device");
@@ -137,6 +145,8 @@ int main() {
     Check(first != 0, "submit premultiplied red");
     std::memset(red, 0, sizeof(red));
     Check(SUCCEEDED(device->BeginScene()) && SUCCEEDED(device->EndScene()), "draw first frame");
+    Check(gameCallbacks.load() == 1 && callbackThread.load() == GetCurrentThreadId(),
+        "game-state callback executes on the device-owning thread");
     Check(NpcD3D::IsRendering(), "real successful EndScene observed");
     Check(NpcD3D::GetViewportSize(width, height) && width == 64 && height == 48, "full backbuffer size, not temporary viewport");
     Check(!NpcD3D::PresentedFrame(), "EndScene alone is not delivery");
@@ -212,10 +222,17 @@ int main() {
     }
     Sleep(1100);
     Check(!NpcD3D::IsRendering() && !NpcD3D::GetViewportSize(width, height), "liveness expires without game frames");
+    const unsigned callbacksBeforeShutdown = gameCallbacks.load();
     NpcD3D::Shutdown();
     Check(!NpcD3D::SubmitFrame(1, 1, rows, 4), "Shutdown rejects submission");
     Check(SUCCEEDED(device->BeginScene()) && SUCCEEDED(device->EndScene()) && SUCCEEDED(device->Present(nullptr, nullptr, nullptr, nullptr)),
         "disabled hooks still forward original calls");
+    Check(gameCallbacks.load() == callbacksBeforeShutdown + 1,
+        "pending game-state restoration still runs after renderer shutdown");
+    NpcD3D::SetGameFrameCallback(nullptr);
+    const unsigned callbacksAfterRemoval = gameCallbacks.load();
+    Check(SUCCEEDED(device->BeginScene()) && SUCCEEDED(device->EndScene()) &&
+        gameCallbacks.load() == callbacksAfterRemoval, "callback removal prevents further game-state calls");
     Check(!NpcD3D::IsRendering(), "Shutdown stays nonrendering");
     Check(NpcD3D::Initialize(), "resident hooks can be re-enabled");
     const auto third = NpcD3D::SubmitFrame(1, 1, rows, 4);

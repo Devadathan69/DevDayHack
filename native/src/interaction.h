@@ -6,6 +6,9 @@
 namespace NpcInteraction {
 constexpr float StartRadius = 3.5f;
 constexpr float LeaveRadius = 5.0f;
+constexpr uint32_t RecordHoldMs = 180;
+inline bool IsRecordTap(uint32_t heldMs) { return heldMs < RecordHoldMs; }
+inline bool RecordHoldReady(uint32_t now, uint32_t downTime) { return now - downTime >= RecordHoldMs; }
 struct Ped {
     uintptr_t address = 0;
     uint32_t handle = 0;
@@ -13,7 +16,17 @@ struct Ped {
     float health = 0;
     bool inVehicle = false;
     unsigned char area = 0;
+    uint16_t modelId = 0;
+    int pedType = 0;
+    unsigned char modelGender = 0;
 };
+inline const char* ModelGender(const Ped& ped) {
+    return ped.modelGender == 1 ? "male" : ped.modelGender == 2 ? "female" : "unknown";
+}
+inline const char* Gender(const Ped& ped) {
+    if (ped.modelGender == 1 || ped.modelGender == 2) return ModelGender(ped);
+    return ped.pedType == 4 ? "male" : ped.pedType == 5 ? "female" : "unknown";
+}
 inline bool CanTalk(const Ped& player, const Ped& npc, float radius) {
     if (!player.address || !npc.address || player.address == npc.address ||
         !std::isfinite(player.health) || !std::isfinite(npc.health) ||
@@ -34,7 +47,7 @@ inline uint32_t ScopeGeneration(uint32_t sceneEpoch, uint32_t pedHandle) {
     return (sceneEpoch << 17) | (pedHandle & 0x1FFFFu);
 }
 inline bool IsConversation(unsigned state) {
-    return state >= 2 && state <= 7;
+    return state >= 2 && state <= 8;
 }
 inline bool DeadlineReached(uint32_t now, uint32_t deadline) {
     return static_cast<int32_t>(now - deadline) >= 0;

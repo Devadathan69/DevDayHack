@@ -34,6 +34,7 @@ let apiWriteQueue = Promise.resolve();
 let apiConnectionError = "";
 let companionReady = false;
 let gameProfileId = defaults.id;
+let voiceOptions = [{ voiceRef: defaults.voiceRef, label: "Server default voice" }];
 
 function deepCopy(value) { return JSON.parse(JSON.stringify(value)); }
 function newProfile(data = defaults, versions = [], activeVersion = null) { return { data: deepCopy(data), versions: deepCopy(versions), activeVersion }; }
@@ -52,7 +53,7 @@ function readForm() {
     dialogue: { replyLength: $("replyLength").value, language: $("language").value, creativity: Number($("creativity").value), focus: Number($("focus").value), boundary: $("boundary").value.trim() },
     behavior: { greeting: $("greeting").value, ambient: $("ambient").value, memoryEnabled: $("memoryEnabled").checked, sceneAware: $("sceneAware").checked, teasing: $("teasing").checked },
     voice: { preset: $("voicePreset").value, mood: $("voiceMood").value, speed: Number($("voiceSpeed").value) },
-    voiceRef: base.voiceRef
+    voiceRef: $("voicePreset").value
   };
 }
 
@@ -177,7 +178,10 @@ function hydrate(profile) {
   for (const key of Object.keys(defaults.traits)) $(key).value = normalized.traits[key];
   for (const key of ["replyLength", "language", "creativity", "focus", "boundary"]) $(key).value = normalized.dialogue[key];
   for (const key of Object.keys(defaults.behavior)) $(key).type === "checkbox" ? $(key).checked = normalized.behavior[key] : $(key).value = normalized.behavior[key];
-  $("voicePreset").value = normalized.voice.preset; $("voiceMood").value = normalized.voice.mood; $("voiceSpeed").value = normalized.voice.speed;
+  if (![...$("voicePreset").options].some((option) => option.value === normalized.voiceRef)) {
+    const option = document.createElement("option"); option.value = normalized.voiceRef; option.textContent = "Saved configured voice"; $("voicePreset").append(option);
+  }
+  $("voicePreset").value = normalized.voiceRef; $("voiceMood").value = normalized.voice.mood; $("voiceSpeed").value = normalized.voice.speed;
   render();
 }
 
@@ -258,6 +262,10 @@ async function init() {
       const state = await response.json();
       if (!response.ok) throw new Error(state.error ?? `HTTP ${response.status}`);
       if (Array.isArray(state.profiles) && state.profiles.length) {
+        voiceOptions = Array.isArray(state.voiceOptions) && state.voiceOptions.length ? state.voiceOptions : voiceOptions;
+        $("voicePreset").replaceChildren(...voiceOptions.map((voice) => {
+          const option = document.createElement("option"); option.value = voice.voiceRef; option.textContent = voice.label; return option;
+        }));
         profiles = state.profiles.map((item) => ({ data: { ...deepCopy(defaults), ...item.data }, versions: item.versions ?? [], activeVersion: item.activeVersion ?? null }));
         selectedId = state.selectedId;
         companionReady = state.companionReady === true; gameProfileId = state.gameProfileId ?? defaults.id;

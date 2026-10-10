@@ -4,26 +4,30 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
-## 2026-10-11T02:06:07+05:30 — Merge live companion and integrate dashboard profile API
+## 2026-10-11T04:38:12+05:30 — Integrate dashboard with latest NPC voice and pedestrian systems
 
-- Changed: Incorporated `origin/main` live companion, SQLite memory, and GTA overlay work. Added authenticated profile management persistence and server-served dashboard routes; integrated roster draft/publish, import/export, profile activation for companion sessions, and voice settings with the localhost backend.
-- Why: Bring the dashboard onto the current game/voice stack and make its profile workflow persist beyond browser storage.
-- Validation: `npm run check` and `git diff --check` passed.
-- Limitations: Dashboard configuration is localhost-only. Additional NPCs are available to the companion but are not bound to GTA pedestrian identities. Per-profile voice delivery controls remain preferences; the scene-context toggle is not yet backed by game scene descriptions.
+- Changed: Merged current `main` native hold-to-talk, dynamic pedestrian personas, gender-aware voices, and unlimited-turn behavior into `dashboard`. Preserved the authenticated admin UI and server persistence, exposed safe configured voice choices, and applied published Manu dialogue/behavior/personality controls to generated game pedestrians.
+- Why: Keep the dashboard usable with the current game and voice runtime instead of losing the admin interface when updating from `main`.
+- Validation: `npm run check`, `git diff --check`, package JSON parsing, and conflict-marker scan passed. Automated test suites were not run.
+- Limitations: Dashboard profile voice choices apply to companion profiles. In-game pedestrians use the server's configured gender-aware voice pools. Local live-provider credentials and actual gameplay were not exercised in this integration.
 
-## 2026-10-11T00:40:33+05:30 — Expand dashboard profile workflows
+## 2026-10-11T04:20:46+05:30 — Deliver distinct voices and native hold-R speech-to-text
 
-- Changed: Added local multi-NPC roster management, profile import, publish/version snapshots and restore, behavior presets, scenario-based mock simulation, and stored voice delivery preferences. Voice playback is explicitly unavailable until a backend adapter is connected.
-- Why: Give the team an admin control surface while backend and voice services are under active development.
-- Validation: `npm run check` and `git diff --check` passed.
-- Limitations: Profiles and history remain browser-local. Simulation is deterministic sample output; publishing does not call the backend or activate an in-game profile.
+- Changed: Integrated the reversible NPC stand/facing utility into the main game-thread callback. Enter/F6 prepares the held NPC and loads a scoped original persona without a paid greeting. Added stable named male/female voice pools, model-gender priority and safe neutral fallback; traits remain independent of gender. Actual account IDs stay only in ignored `.env` and public selection responses expose names, not IDs.
+- Changed: Added explicit hold-R WinMM capture on the overlay UI thread, bounded in-memory PCM/WAV, release-to-STT `POST /api/turn` with bridge authentication, recognized-text display and the existing spoken-subtitle pipeline. Tap-R/typing, Escape, lost focus, invalid selection and raw-capture cleanup are handled; input is capped at 15 seconds for memory/device safety. No CJ mission/cutscene translation/dubbing was added after the user chose STT instead.
+- Changed: Removed the default 25-turn application cap (`LIVE_TURN_LIMIT=0`, remaining=null), retaining optional positive opt-in limits, provider quotas/errors and accurate companion labels. Updated setup, test commands, status, integration references and submission documentation.
+- Why/diagnosis: Civil-type-only and explicit-animation-only classification missed a real female model (64, role type 22, animation `pro`). Metadata-only live logs identified the gap; strictly recognized stock gender-coded model stems now supplement civil/animation metadata. Installed metadata recognises 163 male and 74 female labels. Unknown/custom conventions are not guessed from appearance or occupation. Pool selection decodes slot/flags/epoch; `handle % 4` would otherwise make identical slot flags choose one voice for all NPCs.
+- Affected: Backend config/voice resolution/profile/registry/session/provider/server modules and tests; companion budget display; native bootstrap, metadata/interaction/signature/microphone helpers, native build/test wiring and tests; sanitized environment example, README, integration guide, plan and submission status.
+- Validation: `npm test` passed 70 offline tests, including realistic sixteen-male-handle distribution, stable reselection, corrected female metadata/voice, cached-correction memory/stale cancellation, authenticated WAV STT, more than 25 turns and companion unlimited labels. `npm run check`, local documentation links, IDE/native diagnostics and diff checks passed. Native tests passed hold/restoration/fault/stale-slot checks, stock gender parsing, installed player/pool/standstill signatures and synthetic microphone chronology/bounds/partial flush/cancellation/restart/failures without opening a microphone. GPU hosts passed 63/64 checks; five distinct production audio workers passed using an existing authorized MP3 fixture, which was subsequently deleted.
+- Deployment/live verification: Final `npm run build:native` produced a 367,616-byte x86 ASI; `npm run install:native -- -GameDirectory '..\Grand Theft Auto San Andreas'` copied only this plugin and matched its hash. Read-only account lookups confirmed access/gender labels for all five approved voices without synthesis. Free live bridge checks confirmed all four named male assignments, stable reselection, model-female preference and uncapped status. Game logs confirm metadata/task/main-thread holding/render startup. After correcting the diagnosed stock category, the user confirmed the female voice and hold-R recognition/text/spoken-reply round trip.
+- Limitations: Default Windows input/desktop microphone permission is required; permanently broken drivers may retain ring memory for safety. Custom/unlabelled assets can retain neutral fallback, selection is nearest eligible rather than camera-center targeting, and identity remains process/scene/pool scoped. Mouse/gamepad suppression, exhaustive gameplay/other-mod compatibility and pronunciation across voices are not comprehensively verified. Provider usage remains billable; credentials/IDs were not committed. Human functional confirmation received; source review pending.
 
-## 2026-10-10T22:33:29+05:30 — Add NPC personality admin dashboard
+## 2026-10-11T02:53:24+05:30 — Checkpoint reversible pedestrian hold and game-thread hooks
 
-- Changed: Added a responsive browser-based profile editor with trait and dialogue controls, behavior settings, live mock preview, browser-local drafts, reset, and JSON export. Updated the README and syntax-check command.
-- Why: Make the NPC profile easier to customize and inspect without implying that backend/game integration is complete.
-- Validation: `npm run check` and `git diff --check` passed.
-- Limitations: Drafts stay in browser local storage; exports do not update the backend profile automatically. Dialogue preview and voice are mock-only.
+- Changed: Added the native pedestrian hold utility and x86 regression fixtures, plus a Direct3D game-frame callback that runs on the device-owning thread and remains available for restoration after renderer shutdown. Native build/test scripts compile the utility and expose optional `-Renderer` smoke checks.
+- Why: Conversation participants must stop walking, face CJ and resume safely without replacing/deleting their existing game-owned AI tasks. Game memory changes cannot run on HTTP or overlay worker threads.
+- Validation: `npm run test:native -- -GameExecutable '..\Grand Theft Auto San Andreas\gta-sa.exe' -Renderer` passed hold/facing/restoration, recycled-slot/model/area/range/vehicle/death exclusions and fault rollback; the GPU hosts passed 63/64 checks including callback thread/helper/shutdown behavior. The working-tree integration also built successfully and the user reported interaction working, but that unfinished integration is not part of this utility checkpoint.
+- Limitations/state: Per-model gender correction, named male/female voice pools, removal of the default turn cap and newly requested hold-R speech-to-text are still being integrated and are not claimed verified by this checkpoint. Existing native/voice integration edits remain in the working tree; source review pending.
 
 ## 2026-10-11T01:52:48+05:30 — Deliver nearby in-game interaction with repeatable spoken subtitles
 

@@ -37,8 +37,11 @@ export function validateProfile(profile) {
   }
   if (profile.traits !== undefined) {
     const traits = ["warmth", "curiosity", "humor", "confidence"];
-    if (!profile.traits || typeof profile.traits !== "object" || traits.some((key) => !Number.isInteger(profile.traits[key]) || profile.traits[key] < 0 || profile.traits[key] > 100)) {
-      throw new ValidationError("NPC traits must provide warmth, curiosity, humor, and confidence as integers from 0 to 100.");
+    const personaTraits = ["disposition", "occupation", "hobby", "speakingStyle"];
+    const sliderTraits = profile.traits && traits.every((key) => Number.isInteger(profile.traits[key]) && profile.traits[key] >= 0 && profile.traits[key] <= 100);
+    const generatedTraits = profile.traits && personaTraits.every((key) => typeof profile.traits[key] === "string" && profile.traits[key].length <= 100);
+    if (!sliderTraits && !generatedTraits) {
+      throw new ValidationError("NPC traits must contain either 0–100 personality sliders or generated pedestrian persona details.");
     }
   }
   if (profile.dialogue !== undefined) {
@@ -79,6 +82,16 @@ export function validateConversationKey(key) {
     }
   }
   return { worldId: key.worldId, playerId: key.playerId, npcId: key.npcId };
+}
+
+export function validateGameScope({ gameSessionId, sceneGeneration }) {
+  if (typeof gameSessionId !== "string" || gameSessionId.trim().length === 0 || gameSessionId.length > 128) {
+    throw new ValidationError("A game session ID must contain 1–128 characters.");
+  }
+  if (!Number.isSafeInteger(sceneGeneration) || sceneGeneration < 0) {
+    throw new ValidationError("Scene generation must be a non-negative integer.");
+  }
+  return { gameSessionId, sceneGeneration };
 }
 
 export function validateTurnContext(context) {

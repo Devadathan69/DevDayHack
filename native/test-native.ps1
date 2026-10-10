@@ -1,4 +1,4 @@
-param([string]$GameExecutable = "", [string]$AudioFile = "")
+param([string]$GameExecutable = "", [string]$AudioFile = "", [switch]$Renderer)
 $ErrorActionPreference = "Stop"
 $buildDirectory = Join-Path $PSScriptRoot "build"
 New-Item -ItemType Directory -Path $buildDirectory -Force | Out-Null
@@ -9,15 +9,33 @@ if (-not $vsPath) { throw "The Visual C++ x86/x64 build tools were not found." }
 $vsDevCmd = Join-Path $vsPath "Common7\Tools\VsDevCmd.bat"
 $source = Join-Path $PSScriptRoot "test\interaction.test.cpp"
 $output = Join-Path $buildDirectory "interaction-tests.exe"
+$holdSource = Join-Path $PSScriptRoot "src\ped-hold.cpp"
+$holdTestSource = Join-Path $PSScriptRoot "test\ped-hold.test.cpp"
+$holdOutput = Join-Path $buildDirectory "ped-hold-tests.exe"
+$microphoneSource = Join-Path $PSScriptRoot "src\microphone.cpp"
+$microphoneTestSource = Join-Path $PSScriptRoot "test\microphone.test.cpp"
+$microphoneOutput = Join-Path $buildDirectory "microphone-tests.exe"
+$rendererSource = Join-Path $PSScriptRoot "src\d3d-overlay.cpp"
 $commandFile = Join-Path $buildDirectory "test-native.cmd"
 $audioOutput = Join-Path $buildDirectory "audio-thread-tests.exe"
 $audioBuild = ""
 if ($AudioFile) {
     $audioSource = Join-Path $PSScriptRoot "test\audio-thread.test.cpp"
-    $rendererSource = Join-Path $PSScriptRoot "src\d3d-overlay.cpp"
     $audioBuild = @"
 if errorlevel 1 exit /b %errorlevel%
-cl.exe /nologo /MT /EHsc /std:c++17 /W4 /DUNICODE /D_UNICODE /Fe:"$audioOutput" "$audioSource" "$rendererSource" /link /MACHINE:X86
+cl.exe /nologo /MT /EHsc /std:c++17 /W4 /DUNICODE /D_UNICODE /Fe:"$audioOutput" "$audioSource" "$rendererSource" "$holdSource" "$microphoneSource" /link /MACHINE:X86
+"@
+}
+$rendererBuild = ""
+$rendererOutput = Join-Path $buildDirectory "d3d-overlay-smoke.exe"
+$fallbackOutput = Join-Path $buildDirectory "d3d-overlay-fallback-smoke.exe"
+if ($Renderer) {
+    $rendererTestSource = Join-Path $PSScriptRoot "test\d3d-overlay.test.cpp"
+    $rendererBuild = @"
+if errorlevel 1 exit /b %errorlevel%
+cl.exe /nologo /MT /EHsc /std:c++17 /W4 /WX /DUNICODE /D_UNICODE /Fe:"$rendererOutput" "$rendererTestSource" "$rendererSource" /link /MACHINE:X86
+if errorlevel 1 exit /b %errorlevel%
+cl.exe /nologo /MT /EHsc /std:c++17 /W4 /WX /DUNICODE /D_UNICODE /DOVERLAY_FALLBACK_ONLY /Fe:"$fallbackOutput" "$rendererTestSource" "$rendererSource" /link /MACHINE:X86
 "@
 }
 $command = @"
@@ -27,7 +45,12 @@ if errorlevel 1 exit /b %errorlevel%
 cd /d "$buildDirectory"
 if errorlevel 1 exit /b %errorlevel%
 cl.exe /nologo /MT /EHsc /std:c++17 /W4 /Fe:"$output" "$source"
+if errorlevel 1 exit /b %errorlevel%
+cl.exe /nologo /MT /EHsc /std:c++17 /W4 /WX /Fe:"$holdOutput" "$holdTestSource" "$holdSource" /link /MACHINE:X86
+if errorlevel 1 exit /b %errorlevel%
+cl.exe /nologo /MT /EHsc /std:c++17 /W4 /WX /Fe:"$microphoneOutput" "$microphoneTestSource" "$microphoneSource" /link /MACHINE:X86
 $audioBuild
+$rendererBuild
 exit /b %errorlevel%
 "@
 Set-Content -LiteralPath $commandFile -Value $command -Encoding ASCII
@@ -45,6 +68,16 @@ try {
     }
     & $output @arguments
     if ($LASTEXITCODE -ne 0) { throw "Native regression tests failed with exit code $LASTEXITCODE." }
+    & $holdOutput
+    if ($LASTEXITCODE -ne 0) { throw "Pedestrian hold tests failed with exit code $LASTEXITCODE." }
+    & $microphoneOutput
+    if ($LASTEXITCODE -ne 0) { throw "Microphone synthetic tests failed with exit code $LASTEXITCODE." }
+    if ($Renderer) {
+        & $rendererOutput
+        if ($LASTEXITCODE -ne 0) { throw "Factory renderer tests failed." }
+        & $fallbackOutput
+        if ($LASTEXITCODE -ne 0) { throw "Fallback renderer tests failed." }
+    }
     if ($AudioFile) {
         & $audioOutput $AudioFile
         if ($LASTEXITCODE -ne 0) { throw "Production audio-thread tests failed with exit code $LASTEXITCODE." }

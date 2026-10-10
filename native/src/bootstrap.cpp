@@ -20,6 +20,9 @@
 #include "interaction.h"
 #include "game-layout.h"
 #include "audio-file.h"
+#include "ped-hold.h"
+#include "ped-metadata.h"
+#include "microphone.h"
 #include "d3d-overlay.h"
 
 #pragma comment(lib, "winhttp.lib")
@@ -37,6 +40,7 @@ namespace {
 
 uintptr_t g_playerPedAddress = 0;
 uintptr_t g_pedPoolAddress = 0;
+uintptr_t g_standstillProcessAddress = 0;
 constexpr size_t PED_POOL_SLOT_SIZE = 0x7C4;
 constexpr float INTERACT_RADIUS = NpcInteraction::StartRadius;
 constexpr DWORD OVERLAY_FPS  = 30;
@@ -49,6 +53,8 @@ constexpr UINT_PTR TIMER_ID  = 42001;
 constexpr UINT AUDIO_STOP_MESSAGE = WM_APP + 41;
 constexpr UINT AUDIO_PLAY_MESSAGE = WM_APP + 42;
 constexpr UINT AUDIO_WRITE_MESSAGE = WM_APP + 43;
+constexpr UINT MIC_START_MESSAGE = WM_APP + 44;
+constexpr UINT MIC_STOP_MESSAGE = WM_APP + 45;
 
 const wchar_t* const OVERLAY_CLASS = L"MalayalamNpcOverlay_v1";
 const wchar_t* const BACKEND_HOST  = L"127.0.0.1";
@@ -60,20 +66,22 @@ const wchar_t* const BACKEND_HOST  = L"127.0.0.1";
 enum class UiState {
     HIDDEN,        // Nothing to show
     PROMPT,        // "Press F6 / Enter to talk to Manu"
-    GREETING,      // Connecting + auto-greeting
+    GREETING,      // Preparing the standing NPC and its personality
     SUBTITLE,      // Showing NPC reply (+ optional audio)
     READY,         // Ready for player input
     TYPING,        // Player is typing
     PROCESSING,    // Waiting for backend
     ERROR_SHOW,    // Showing an error message
+    RECORDING,     // R is held; microphone capture stays on the UI thread
 };
 
 struct OverlayData {
     std::mutex       mtx;
     UiState          state        = UiState::HIDDEN;
     std::wstring     subtitle;
-    std::wstring     npcName      = L"Manu";
+    std::wstring     npcName      = L"pedestrian";
     std::wstring     inputText;
+    std::wstring     recognizedText;
     std::wstring     errorText;
     std::wstring     statusText;
     std::wstring     audioPath;
@@ -114,6 +122,19 @@ std::atomic<bool> g_cancelPending{false};
 std::atomic<unsigned int> g_selectedPedHandle{0};
 std::atomic<unsigned int> g_sceneEpoch{0};
 std::atomic<unsigned int> g_heldKeys[256]{};
+NpcPedHold::Holder g_pedHolder;
+std::atomic<unsigned long> g_heldConversation{0};
+std::atomic<unsigned long> g_holdFailure{0};
+std::atomic<unsigned long> g_loggedPersonaGeneration{0};
+std::atomic<float> g_nearbyFemaleDistance{-1.0f};
+std::atomic<float> g_nearbyMaleDistance{-1.0f};
+NpcPedMetadata::Table g_modelGender{};
+NpcMicrophone::Recorder g_microphone;
+unsigned long g_recordGeneration = 0;
+DWORD g_recordDownTime = 0;
+wchar_t g_recordTapCharacter = L'r';
+std::wstring g_recordError;
+bool g_recordStartPosted = false;
 
 // ============================================================================
 // Section 4: Utility — safe memory, string conversion, logging
@@ -192,6 +213,7 @@ bool DetectGameLayout() {
         if (runtimeBase != 0x400000) return false;
         g_playerPedAddress = 0xB6F5F0;
         g_pedPoolAddress = 0xB74490;
+        g_standstillProcessAddress = 0x62F370;
         return true;
     }
     // The installed 2014 layout has different globals. Verify both code references,
@@ -201,8 +223,15 @@ bool DetectGameLayout() {
     if (!ReadMemorySafe(reinterpret_cast<const void*>(NpcGameLayout::Resolve(runtimeBase, NpcGameLayout::PlayerCodeAddress)), playerBytes, sizeof(playerBytes)) ||
         !ReadMemorySafe(reinterpret_cast<const void*>(NpcGameLayout::Resolve(runtimeBase, NpcGameLayout::PoolCodeAddress)), poolBytes, sizeof(poolBytes)) ||
         !NpcGameLayout::MatchesInstalled(entry, nt.OptionalHeader.SizeOfImage, playerBytes, poolBytes, runtimeBase)) return false;
+    BYTE standstillBytes[sizeof(NpcGameLayout::StandstillCode)]{};
+    BYTE taskTypeBytes[sizeof(NpcGameLayout::StandstillTaskType)]{};
+    const uintptr_t standstill = NpcGameLayout::Resolve(runtimeBase, NpcGameLayout::StandstillProcessAddress);
+    if (!ReadMemorySafe(reinterpret_cast<const void*>(standstill), standstillBytes, sizeof(standstillBytes)) ||
+        !ReadMemorySafe(reinterpret_cast<const void*>(NpcGameLayout::Resolve(runtimeBase, NpcGameLayout::StandstillTaskTypeAddress)), taskTypeBytes, sizeof(taskTypeBytes)) ||
+        !NpcGameLayout::MatchesStandstill(standstillBytes, taskTypeBytes)) return false;
     g_playerPedAddress = NpcGameLayout::Resolve(runtimeBase, 0xC100D0);
     g_pedPoolAddress = NpcGameLayout::Resolve(runtimeBase, 0xC018A8);
+    g_standstillProcessAddress = standstill;
     return true;
 }
 
@@ -227,6 +256,32 @@ void WriteLog(const wchar_t* msg) {
         now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute, now.wSecond, msg);
     if (n > 0) { DWORD bw = 0; WriteFile(f, line, (DWORD)(n * sizeof(wchar_t)), &bw, nullptr); }
     CloseHandle(f);
+}
+
+bool LoadModelGenderMetadata() {
+    wchar_t modulePath[MAX_PATH]{};
+    const DWORD length = GetModuleFileNameW(nullptr, modulePath, MAX_PATH);
+    if (!length || length >= MAX_PATH) return false;
+    std::wstring path(modulePath, length);
+    const auto separator = path.find_last_of(L"\\");
+    if (separator == std::wstring::npos) return false;
+    path.resize(separator);
+    path += L"\\data\\peds.ide";
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) return false;
+    LARGE_INTEGER size{};
+    if (!GetFileSizeEx(file, &size) || size.QuadPart <= 0 || size.QuadPart > 1024 * 1024) {
+        CloseHandle(file);
+        return false;
+    }
+    std::string contents(static_cast<size_t>(size.QuadPart), '\0');
+    DWORD read = 0;
+    const BOOL ok = ReadFile(file, contents.data(), static_cast<DWORD>(contents.size()), &read, nullptr);
+    CloseHandle(file);
+    if (!ok || read != contents.size()) return false;
+    g_modelGender = NpcPedMetadata::Parse(contents);
+    return std::any_of(g_modelGender.begin(), g_modelGender.end(), [](unsigned char value) { return value != 0; });
 }
 
 // Minimal JSON string value extractor (handles escapes + UTF-8)
@@ -289,7 +344,11 @@ bool ReadPed(uintptr_t address, NpcInteraction::Ped& ped) {
         !ReadMemorySafe(reinterpret_cast<const void*>(matrix + 0x30), position, sizeof(position)) ||
         !ReadMemorySafe(reinterpret_cast<const void*>(address + 0x540), &ped.health, sizeof(ped.health)) ||
         !ReadMemorySafe(reinterpret_cast<const void*>(address + 0x46D), &vehicleFlags, sizeof(vehicleFlags)) ||
-        !ReadMemorySafe(reinterpret_cast<const void*>(address + 0x2F), &ped.area, sizeof(ped.area))) return false;
+        !ReadMemorySafe(reinterpret_cast<const void*>(address + 0x2F), &ped.area, sizeof(ped.area)) ||
+        !ReadMemorySafe(reinterpret_cast<const void*>(address + 0x22), &ped.modelId, sizeof(ped.modelId)) ||
+        !ReadMemorySafe(reinterpret_cast<const void*>(address + 0x598), &ped.pedType, sizeof(ped.pedType))) return false;
+    if (ped.pedType < 0 || ped.pedType > 31) return false;
+    ped.modelGender = g_modelGender[ped.modelId];
     ped.x = position[0]; ped.y = position[1]; ped.z = position[2];
     ped.inVehicle = (vehicleFlags & 1) != 0;
     return std::isfinite(ped.x) && std::isfinite(ped.y) && std::isfinite(ped.z) &&
@@ -314,6 +373,8 @@ bool IsInsideGameImage(DWORD address) {
 bool FindNearbyPed(NpcInteraction::Ped& nearest, const NpcInteraction::Ped& selected, bool& selectedInRange) {
     nearest = {};
     selectedInRange = false;
+    g_nearbyFemaleDistance.store(-1.0f);
+    g_nearbyMaleDistance.store(-1.0f);
     if (!g_gameLayoutSupported.load()) return false;
     DWORD playerAddress = 0, pool = 0, objects = 0, flags = 0;
     int poolSize = 0;
@@ -339,6 +400,13 @@ bool FindNearbyPed(NpcInteraction::Ped& nearest, const NpcInteraction::Ped& sele
             selectedInRange = NpcInteraction::CanTalk(player, candidate, NpcInteraction::LeaveRadius);
         if (!NpcInteraction::CanTalk(player, candidate, INTERACT_RADIUS)) continue;
         const float distance = NpcInteraction::DistanceSquared(player, candidate);
+        const char* gender = NpcInteraction::Gender(candidate);
+        auto& nearestGender = std::strcmp(gender, "female") == 0 ? g_nearbyFemaleDistance : g_nearbyMaleDistance;
+        if (std::strcmp(gender, "unknown") != 0) {
+            const float metres = std::sqrt(distance);
+            const float previous = nearestGender.load();
+            if (previous < 0 || metres < previous) nearestGender.store(metres);
+        }
         if (distance <= nearestDistance) {
             nearestDistance = distance;
             nearest = candidate;
@@ -350,6 +418,31 @@ bool FindNearbyPed(NpcInteraction::Ped& nearest, const NpcInteraction::Ped& sele
 // ============================================================================
 // Section 6: HTTP client (WinHTTP, synchronous on worker threads)
 // ============================================================================
+
+void OnGameFrame() {
+    NpcPedHold::Request request{};
+    request.playerPedPointerAddress = g_playerPedAddress;
+    request.pedPoolPointerAddress = g_pedPoolAddress;
+    request.standstillProcessAddress = g_standstillProcessAddress;
+    request.generation = g_conversationGeneration.load();
+    {
+        std::lock_guard<std::mutex> lock(g_data.mtx);
+        request.active = g_running.load() && g_gameLayoutSupported.load() &&
+            NpcInteraction::IsConversation(static_cast<unsigned>(g_data.state));
+        request.pedAddress = g_data.selectedPed.address;
+        request.pedHandle = g_data.selectedPed.handle;
+    }
+    if (g_gameWnd && GetCurrentThreadId() != GetWindowThreadProcessId(g_gameWnd, nullptr)) {
+        if (request.active) g_holdFailure.store(request.generation);
+        return;
+    }
+    const auto result = g_pedHolder.Update(request);
+    if (result == NpcPedHold::Result::Held) g_heldConversation.store(request.generation);
+    else {
+        g_heldConversation.store(0);
+        if (request.active) g_holdFailure.store(request.generation);
+    }
+}
 
 struct HttpResponse {
     int    status = 0;
@@ -533,11 +626,37 @@ bool DownloadAudio(const std::string& audioUrlPath, unsigned long generation) {
 // Section 9: Backend interaction (runs on detached threads)
 // ============================================================================
 
-bool BackendSelect(unsigned int pedHandle) {
+bool BackendSelect(unsigned int pedHandle, unsigned long generation) {
+    NpcInteraction::Ped pedestrian;
+    {
+        std::lock_guard<std::mutex> lock(g_data.mtx);
+        if (generation != g_conversationGeneration.load() || !g_data.selectedPed.address) return false;
+        pedestrian = g_data.selectedPed;
+    }
     LoadBridgeToken();
     const std::string body = "{\"gameSessionId\":\"gta-" + std::to_string(GetCurrentProcessId()) +
-        "\",\"sceneGeneration\":" + std::to_string(pedHandle) + "}";
-    return HttpRequest(L"POST", L"/api/select", body, L"application/json").ok();
+        "\",\"sceneGeneration\":" + std::to_string(pedHandle) +
+        ",\"pedestrian\":{\"modelId\":" + std::to_string(pedestrian.modelId) +
+        ",\"pedType\":" + std::to_string(pedestrian.pedType) +
+        ",\"gender\":\"" + NpcInteraction::Gender(pedestrian) +
+        "\",\"modelGender\":\"" + NpcInteraction::ModelGender(pedestrian) + "\"}}";
+    const auto response = HttpRequest(L"POST", L"/api/select", body, L"application/json");
+    if (!response.ok()) return false;
+    const auto name = Utf8ToWide(ExtractJsonString(response.body, "displayName"));
+    if (name.empty()) return false;
+    if (generation == g_conversationGeneration.load() && g_loggedPersonaGeneration.exchange(generation) != generation) {
+        wchar_t diagnostic[384]{};
+        const auto modelGender = Utf8ToWide(NpcInteraction::ModelGender(pedestrian));
+        const auto effectiveGender = Utf8ToWide(NpcInteraction::Gender(pedestrian));
+        const auto backendGender = Utf8ToWide(ExtractJsonString(response.body, "gender"));
+        swprintf_s(diagnostic, L"NPC selection metadata: model=%u, liveType=%d, modelGender=%s, effectiveGender=%s, backendGender=%s, nearFemale=%.2f, nearMale=%.2f.",
+            static_cast<unsigned>(pedestrian.modelId), pedestrian.pedType, modelGender.c_str(), effectiveGender.c_str(), backendGender.c_str(),
+            g_nearbyFemaleDistance.load(), g_nearbyMaleDistance.load());
+        WriteLog(diagnostic);
+    }
+    std::lock_guard<std::mutex> lock(g_data.mtx);
+    if (generation == g_conversationGeneration.load()) g_data.npcName = name;
+    return true;
 }
 
 void BackendCancel() {
@@ -545,11 +664,16 @@ void BackendCancel() {
 }
 
 void ExitConversation() {
+    g_microphone.Cancel();
+    g_recordGeneration = 0;
+    g_recordError.clear();
+    g_recordStartPosted = false;
     g_conversationGeneration.fetch_add(1);
     {
         std::lock_guard<std::mutex> lock(g_data.mtx);
         g_data.state = UiState::HIDDEN;
         g_data.inputText.clear();
+        g_data.recognizedText.clear();
         g_data.subtitle.clear();
         g_data.selectedPed = {};
         g_data.audioPlaying = false;
@@ -563,12 +687,42 @@ void ExitConversation() {
     }).detach();
 }
 
+bool HasActiveConversation() {
+    std::lock_guard<std::mutex> lock(g_data.mtx);
+    return NpcInteraction::IsConversation(static_cast<unsigned>(g_data.state));
+}
+
 bool GameIsForeground();
 
-void BackendTurn(const std::wstring& text, unsigned long generation, unsigned int pedHandle) {
+void BeginConversation(unsigned long generation, unsigned int pedHandle) {
+    std::lock_guard<std::mutex> turnLock(g_turnMutex);
+    const DWORD deadline = GetTickCount() + 2000;
+    while (g_running.load() && generation == g_conversationGeneration.load() &&
+        g_heldConversation.load() != generation && g_holdFailure.load() != generation &&
+        !NpcInteraction::DeadlineReached(GetTickCount(), deadline)) Sleep(10);
+    if (!g_running.load() || generation != g_conversationGeneration.load()) return;
+    const bool selected = g_heldConversation.load() == generation && BackendSelect(pedHandle, generation);
+    if (generation != g_conversationGeneration.load()) {
+        BackendCancel();
+        return;
+    }
+    std::lock_guard<std::mutex> lock(g_data.mtx);
+    if (generation != g_conversationGeneration.load()) return;
+    if (selected) {
+        g_data.state = UiState::READY;
+        g_data.statusText.clear();
+    } else {
+        g_data.state = UiState::ERROR_SHOW;
+        g_data.errorText = L"Cannot prepare this NPC. Restart the local server or press Esc and retry.";
+        g_data.subtitleEnd = GetTickCount() + 5000;
+    }
+}
+
+void BackendTurn(const std::wstring& text, unsigned long generation, unsigned int pedHandle,
+    const std::vector<BYTE>& audio = {}) {
     std::lock_guard<std::mutex> turnLock(g_turnMutex);
     if (!g_running.load() || generation != g_conversationGeneration.load()) return;
-    if (!BackendSelect(pedHandle)) {
+    if (!BackendSelect(pedHandle, generation)) {
         std::lock_guard lk(g_data.mtx);
         if (generation == g_conversationGeneration.load()) {
             g_data.state = UiState::ERROR_SHOW;
@@ -582,10 +736,15 @@ void BackendTurn(const std::wstring& text, unsigned long generation, unsigned in
         BackendCancel();
         return;
     }
-    std::string utf8Text = WideToUtf8(text);
-    const std::string escaped = EscapeJsonString(utf8Text);
-    std::string body = R"({"text":")" + escaped + R"("})";
-    HttpResponse resp = HttpRequest(L"POST", L"/api/text-turn", body, L"application/json");
+    HttpResponse resp;
+    if (audio.empty()) {
+        const std::string escaped = EscapeJsonString(WideToUtf8(text));
+        const std::string body = R"({"text":")" + escaped + R"("})";
+        resp = HttpRequest(L"POST", L"/api/text-turn", body, L"application/json");
+    } else {
+        const std::string wav(reinterpret_cast<const char*>(audio.data()), audio.size());
+        resp = HttpRequest(L"POST", L"/api/turn", wav, L"audio/wav");
+    }
 
     if (!g_running.load() || generation != g_conversationGeneration.load()) return;
 
@@ -608,7 +767,7 @@ void BackendTurn(const std::wstring& text, unsigned long generation, unsigned in
         std::lock_guard lk(g_data.mtx);
         if (generation != g_conversationGeneration.load()) return;
         g_data.state = UiState::ERROR_SHOW;
-        g_data.errorText = L"Manu had nothing to say. Try again.";
+        g_data.errorText = L"The NPC had nothing to say. Try again.";
         g_data.subtitleEnd = GetTickCount() + 3000;
         return;
     }
@@ -622,6 +781,7 @@ void BackendTurn(const std::wstring& text, unsigned long generation, unsigned in
         std::lock_guard<std::mutex> lock(g_data.mtx);
         if (generation != g_conversationGeneration.load()) return;
         g_data.subtitle = wideReply;
+        g_data.recognizedText = audio.empty() ? L"" : Utf8ToWide(ExtractJsonString(resp.body, "transcript"));
         g_data.subtitleEnd = GetTickCount() + readingDuration;
         g_data.subtitleGeneration = generation;
         g_data.subtitleFrame = 0;
@@ -672,6 +832,78 @@ void BackendTurn(const std::wstring& text, unsigned long generation, unsigned in
         const std::string cancelBody = R"({"turnId":")" + EscapeJsonString(turnId) + "\"}";
         HttpRequest(L"POST", L"/api/cancel", cancelBody, L"application/json", 2000);
     }
+}
+
+void ShowRecordingError(const std::wstring& error, unsigned long generation) {
+    g_microphone.Cancel();
+    g_recordGeneration = 0;
+    g_recordStartPosted = false;
+    std::lock_guard<std::mutex> lock(g_data.mtx);
+    if (generation != g_conversationGeneration.load()) return;
+    g_data.state = UiState::ERROR_SHOW;
+    g_data.errorText = error.empty() ? L"Microphone capture failed. Check Windows microphone access and the default input device." : error;
+    g_data.subtitleEnd = GetTickCount() + 5000;
+}
+
+void StartRecording(unsigned long generation) {
+    {
+        std::lock_guard<std::mutex> lock(g_data.mtx);
+        if (generation != g_conversationGeneration.load() || g_data.state != UiState::RECORDING) return;
+    }
+    std::wstring error;
+    if (!g_microphone.Start(error)) {
+        g_recordError = error;
+        std::lock_guard<std::mutex> lock(g_data.mtx);
+        if (generation == g_conversationGeneration.load() && g_data.state == UiState::RECORDING)
+            g_data.statusText = L"Microphone unavailable. Release R for details, or tap R to type it.";
+        return;
+    }
+    bool cancelled = false;
+    {
+        std::lock_guard<std::mutex> lock(g_data.mtx);
+        cancelled = generation != g_conversationGeneration.load() || g_data.state != UiState::RECORDING;
+        if (!cancelled) g_data.statusText = L"Recording... release R to send; Esc cancels.";
+    }
+    if (cancelled) g_microphone.Cancel();
+}
+
+void FinishRecording(DWORD heldMilliseconds, unsigned long generation) {
+    {
+        std::lock_guard<std::mutex> lock(g_data.mtx);
+        if (generation != g_conversationGeneration.load() || g_data.state != UiState::RECORDING) return;
+    }
+    if (NpcInteraction::IsRecordTap(heldMilliseconds)) {
+        g_microphone.Cancel();
+        g_recordGeneration = 0;
+        g_recordStartPosted = false;
+        g_recordError.clear();
+        std::lock_guard<std::mutex> lock(g_data.mtx);
+        if (generation == g_conversationGeneration.load()) {
+            g_data.inputText += g_recordTapCharacter;
+            g_data.state = UiState::TYPING;
+        }
+        return;
+    }
+    if (!g_recordError.empty()) {
+        ShowRecordingError(g_recordError, generation);
+        return;
+    }
+    std::wstring error;
+    auto wav = g_microphone.Stop(error);
+    g_recordGeneration = 0;
+    g_recordStartPosted = false;
+    if (wav.empty()) {
+        ShowRecordingError(error, generation);
+        return;
+    }
+    const unsigned int handle = g_selectedPedHandle.load();
+    {
+        std::lock_guard<std::mutex> lock(g_data.mtx);
+        if (generation != g_conversationGeneration.load()) return;
+        g_data.state = UiState::PROCESSING;
+        g_data.statusText = L"Recognising your speech and preparing the reply...";
+    }
+    std::thread([audio = std::move(wav), generation, handle]() { BackendTurn({}, generation, handle, audio); }).detach();
 }
 
 struct GameWindowSearch {
@@ -736,6 +968,11 @@ LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     const DWORD vk = kb->vkCode;
     if (vk >= 256) return CallNextHookEx(g_kbHook, nCode, wParam, lParam);
     if (wParam == WM_KEYUP || wParam == WM_SYSKEYUP) {
+        if (vk == 'R' && g_recordGeneration && GameIsForeground()) {
+            const DWORD heldFor = kb->time - g_recordDownTime;
+            if (NpcInteraction::IsRecordTap(heldFor) && !g_recordStartPosted) FinishRecording(heldFor, g_recordGeneration);
+            else PostMessageW(g_overlay, MIC_STOP_MESSAGE, heldFor, g_recordGeneration);
+        }
         const unsigned int held = g_heldKeys[vk].exchange(0);
         if (held == 2 && GameIsForeground()) return 1;
         return CallNextHookEx(g_kbHook, nCode, wParam, lParam);
@@ -749,9 +986,18 @@ LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
         std::lock_guard<std::mutex> lock(g_data.mtx);
         state = g_data.state;
     }
+    const bool printable = (vk >= 'A' && vk <= 'Z') || (vk >= '0' && vk <= '9') ||
+        vk == VK_SPACE || vk == VK_BACK || vk == VK_RETURN || (vk >= VK_OEM_1 && vk <= VK_OEM_102);
+    if (state == UiState::RECORDING && !g_recordStartPosted && g_recordGeneration && vk != 'R' && printable) {
+        g_microphone.Cancel();
+        g_recordGeneration = 0;
+        g_recordError.clear();
+        std::lock_guard<std::mutex> lock(g_data.mtx);
+        g_data.inputText += g_recordTapCharacter;
+        g_data.state = state = UiState::TYPING;
+    }
     const bool isTyping = state == UiState::TYPING || state == UiState::READY;
-    const bool conversationActive = state == UiState::GREETING || state == UiState::SUBTITLE ||
-        state == UiState::READY || state == UiState::TYPING || state == UiState::PROCESSING || state == UiState::ERROR_SHOW;
+    const bool conversationActive = NpcInteraction::IsConversation(static_cast<unsigned>(state));
 
     // Always let through: Alt+Tab, Windows key, Alt+F4.
     if (vk == VK_LWIN || vk == VK_RWIN) return CallNextHookEx(g_kbHook, nCode, wParam, lParam);
@@ -772,19 +1018,45 @@ LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     // Enter as a game/menu action. Polling GetAsyncKeyState on a timer can miss
     // short presses because other game code may clear its transition bit.
     if (state == UiState::PROMPT && (vk == VK_F6 || vk == VK_RETURN)) {
-        std::lock_guard<std::mutex> lock(g_data.mtx);
-        if (g_data.state == UiState::PROMPT && g_data.nearbyPed.address && !g_cancelPending.load() && NpcD3D::IsRendering()) {
-            g_data.selectedPed = g_data.nearbyPed;
-            g_selectedPedHandle.store(NpcInteraction::ScopeGeneration(g_sceneEpoch.load(), g_data.selectedPed.handle));
-            g_data.inputText.clear();
-            g_data.subtitle.clear();
-            g_data.state = UiState::READY;
-            g_conversationGeneration.fetch_add(1);
+        unsigned long generation = 0;
+        unsigned int handle = 0;
+        {
+            std::lock_guard<std::mutex> lock(g_data.mtx);
+            if (g_data.state == UiState::PROMPT && g_data.nearbyPed.address && !g_cancelPending.load() && NpcD3D::IsRendering()) {
+                g_data.selectedPed = g_data.nearbyPed;
+                handle = NpcInteraction::ScopeGeneration(g_sceneEpoch.load(), g_data.selectedPed.handle);
+                g_selectedPedHandle.store(handle);
+                g_data.npcName = L"pedestrian";
+                g_data.inputText.clear();
+                g_data.subtitle.clear();
+                g_data.state = UiState::GREETING;
+                generation = g_conversationGeneration.fetch_add(1) + 1;
+            }
         }
+        if (generation) std::thread([generation, handle]() { BeginConversation(generation, handle); }).detach();
         return 1;
     }
 
     if (!isTyping) return conversationActive ? 1 : CallNextHookEx(g_kbHook, nCode, wParam, lParam);
+    if (vk == 'R' && !repeated && !(GetAsyncKeyState(VK_CONTROL) & 0x8000) && !(GetAsyncKeyState(VK_MENU) & 0x8000)) {
+        bool record = false;
+        {
+            std::lock_guard<std::mutex> lock(g_data.mtx);
+            if (g_data.inputText.empty()) {
+                g_recordGeneration = g_conversationGeneration.load();
+                g_recordDownTime = kb->time;
+                const bool shifted = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+                g_recordTapCharacter = shifted != ((GetKeyState(VK_CAPITAL) & 1) != 0) ? L'R' : L'r';
+                g_recordError.clear();
+                g_recordStartPosted = false;
+                g_data.recognizedText.clear();
+                g_data.state = UiState::RECORDING;
+                g_data.statusText = L"Hold R until Recording appears, then speak; release R to send.";
+                record = true;
+            }
+        }
+        if (record) return 1;
+    }
 
     // Enter sends the current text; an empty input is ignored.
     if (vk == VK_RETURN) {
@@ -795,7 +1067,7 @@ LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
             g_data.inputText.clear();
             if (!textToSend.empty()) {
                 g_data.state = UiState::PROCESSING;
-                g_data.statusText = L"Manu is thinking...";
+                g_data.statusText = g_data.npcName + L" is thinking...";
             }
         }
         if (!textToSend.empty()) {
@@ -881,7 +1153,7 @@ void RenderOverlay(int w, int h) {
     float pad = 16.f;
 
     UiState currentState;
-    std::wstring subtitle, inputText, npcName, statusText, errorText;
+    std::wstring subtitle, inputText, npcName, statusText, errorText, recognizedText, targetGender;
     int cursorBlink;
     {
         std::lock_guard lk(g_data.mtx);
@@ -891,6 +1163,8 @@ void RenderOverlay(int w, int h) {
         npcName      = g_data.npcName;
         statusText   = g_data.statusText;
         errorText    = g_data.errorText;
+        recognizedText = g_data.recognizedText;
+        targetGender = Utf8ToWide(NpcInteraction::Gender(g_data.nearbyPed));
         cursorBlink  = g_data.cursorBlink;
         renderGeneration = g_data.subtitleGeneration;
         renderingSubtitle = currentState == UiState::SUBTITLE && !subtitle.empty();
@@ -920,15 +1194,15 @@ void RenderOverlay(int w, int h) {
             Gdiplus::RectF(panelX, curY, panelW, hintH),
             Gdiplus::Color(0, 0, 0, 0),
             Gdiplus::Color(0, 0, 0, 0),
-            L"Type and press Enter  \u2022  Press Esc to leave",
+            L"Hold R to speak or type + Enter  \u2022  Esc to leave",
             Gdiplus::Color(200, 160, 160, 190),
             11.f, 1
         });
     }
 
     // -- Status / processing bar --
-    if (currentState == UiState::PROCESSING || currentState == UiState::GREETING) {
-        std::wstring display = (currentState == UiState::GREETING) ? L"Connecting to Manu..." : statusText;
+    if (currentState == UiState::PROCESSING || currentState == UiState::GREETING || currentState == UiState::RECORDING) {
+        std::wstring display = (currentState == UiState::GREETING) ? L"Preparing this NPC's conversation..." : statusText;
         float barH = 40.f;
         curY -= barH + 8.f;
         boxes.push_back({
@@ -961,6 +1235,15 @@ void RenderOverlay(int w, int h) {
         });
     }
 
+    if (!recognizedText.empty() && (currentState == UiState::SUBTITLE ||
+        currentState == UiState::READY || currentState == UiState::TYPING)) {
+        curY -= 68.f;
+        const std::wstring heard = L"Heard: " + recognizedText.substr(0, 180) +
+            (recognizedText.size() > 180 ? L"..." : L"");
+        boxes.push_back({Gdiplus::RectF(panelX, curY, panelW, 64.f),
+            Gdiplus::Color(210, 12, 28, 35), Gdiplus::Color(160, 100, 210, 160),
+            heard, Gdiplus::Color(255, 190, 240, 215), 13.f, 0});
+    }
     // -- Subtitle panel --
     if (!subtitle.empty() && (currentState == UiState::SUBTITLE ||
         currentState == UiState::READY || currentState == UiState::TYPING)) {
@@ -990,7 +1273,8 @@ void RenderOverlay(int w, int h) {
     if (currentState == UiState::PROMPT) {
         float barH = 48.f;
         curY -= barH + 12.f;
-        const std::wstring prompt = L"\u25B6  Interact with " + npcName + L"  [F6 / Enter]";
+        const std::wstring target = targetGender == L"unknown" ? L"pedestrian" : targetGender + L" pedestrian";
+        const std::wstring prompt = L"\u25B6  Interact with " + target + L"  [F6 / Enter]";
         boxes.push_back({
             Gdiplus::RectF(panelX, curY, panelW, barH),
             Gdiplus::Color(210, 10, 10, 35),
@@ -1104,6 +1388,12 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             request.written = NpcAudio::ReplaceReplyFile(g_tempDir + L"\\npc_reply.mp3", *request.bytes);
         return 0;
     }
+    case MIC_START_MESSAGE:
+        StartRecording(static_cast<unsigned long>(wParam));
+        return 0;
+    case MIC_STOP_MESSAGE:
+        FinishRecording(static_cast<DWORD>(wParam), static_cast<unsigned long>(lParam));
+        return 0;
     case WM_TIMER:
         if (wParam == TIMER_ID) {
             if (!g_gameWnd || !IsWindow(g_gameWnd)) {
@@ -1115,13 +1405,36 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                 renderingLogged = true;
                 WriteLog(L"Direct3D game frames confirmed; in-frame overlay rendering active.");
             }
-            if (!g_gameWnd || !IsWindow(g_gameWnd)) return 0;
+            if (!g_gameWnd || !IsWindow(g_gameWnd)) {
+                if (HasActiveConversation()) ExitConversation();
+                return 0;
+            }
             RECT client{};
-            if (!GetClientRect(g_gameWnd, &client)) return 0;
+            if (!GetClientRect(g_gameWnd, &client)) {
+                if (HasActiveConversation()) ExitConversation();
+                return 0;
+            }
             int ow = client.right - client.left, oh = client.bottom - client.top;
             NpcD3D::GetViewportSize(ow, oh);
-            if (ow < 100 || oh < 100) return 0;
+            if (ow < 100 || oh < 100) {
+                if (HasActiveConversation()) ExitConversation();
+                return 0;
+            }
             const bool focused = !IsIconic(g_gameWnd) && GameIsForeground();
+            g_microphone.Poll();
+            bool recording = false;
+            {
+                std::lock_guard<std::mutex> lock(g_data.mtx);
+                recording = g_data.state == UiState::RECORDING && g_recordGeneration == g_conversationGeneration.load();
+            }
+            if (recording && focused && !g_recordStartPosted && NpcInteraction::RecordHoldReady(GetTickCount(), g_recordDownTime)) {
+                g_recordStartPosted = true;
+                PostMessageW(g_overlay, MIC_START_MESSAGE, g_recordGeneration, 0);
+            }
+            if (recording && g_microphone.LimitReached()) {
+                std::lock_guard<std::mutex> lock(g_data.mtx);
+                g_data.statusText = L"15-second recording limit reached. Release R to send, or Esc to cancel.";
+            }
             static DWORD lastProximityCheck = 0;
             const DWORD now = GetTickCount();
             bool leaveConversation = false;
@@ -1146,7 +1459,21 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                     leaveConversation = active && (!sceneAvailable || !selectedInRange);
                 }
             }
-            if (leaveConversation) ExitConversation();
+            static unsigned long loggedHold = 0;
+            const unsigned long held = g_heldConversation.load();
+            if (held && held != loggedHold) {
+                loggedHold = held;
+                WriteLog(L"Selected NPC is held standing on the game thread.");
+            }
+            bool holdFailed = false;
+            {
+                std::lock_guard<std::mutex> lock(g_data.mtx);
+                holdFailed = g_data.selectedPed.address && g_holdFailure.load() == g_conversationGeneration.load();
+            }
+            if (leaveConversation || holdFailed) {
+                if (holdFailed) WriteLog(L"NPC standstill hold failed safely; conversation cancelled.");
+                ExitConversation();
+            }
 
             // --- State machine ---
             {
@@ -1211,6 +1538,10 @@ DWORD WINAPI OverlayThreadProc(LPVOID) {
         return 1;
     }
     g_gameLayoutSupported.store(DetectGameLayout());
+    NpcD3D::SetGameFrameCallback(OnGameFrame);
+    WriteLog(LoadModelGenderMetadata()
+        ? L"Installed model/animation gender metadata loaded; it overrides generic runtime ped types."
+        : L"Model gender metadata unavailable; using civil ped types or neutral fallback.");
     WriteLog(g_gameLayoutSupported.load()
         ? L"Game code fingerprints recognized; nearest pedestrian interaction enabled."
         : L"Unsupported game code fingerprints; proximity interaction safely disabled.");
@@ -1279,6 +1610,8 @@ DWORD WINAPI OverlayThreadProc(LPVOID) {
     }
     if (g_kbHook) { UnhookWindowsHookEx(g_kbHook); g_kbHook = nullptr; }
     NpcD3D::Shutdown();
+    g_microphone.Cancel();
+    g_recordGeneration = 0;
     StopAudio();
     DeleteFileW((g_tempDir + L"\\npc_reply.mp3").c_str());
     if (g_overlay && IsWindow(g_overlay)) DestroyWindow(g_overlay);

@@ -3,6 +3,11 @@
 #include <cstdint>
 
 namespace NpcD3D {
+using GameFrameCallback = void (*)();
+// Runs on the game's device thread before the overlay draw, including after
+// Shutdown so game-owned state can be restored. Never block on UI/network here.
+void SetGameFrameCallback(GameFrameCallback callback);
+
 // Call outside DllMain. Installs the executable's Direct3DCreate9 import hook
 // immediately and starts a hidden-device fallback on a separate thread.
 // The fallback patches shared factory/device vtables; an already-created
