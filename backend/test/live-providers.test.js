@@ -30,7 +30,10 @@ test("live adapters send audio to Scribe and request ElevenLabs audio without lo
     assert.equal(audio.playable, true);
     assert.deepEqual(audio.bytes, Buffer.from([1, 2, 3]));
     assert.match(calls[1].url, /text-to-speech\/test-voice\?output_format=mp3_44100_128$/u);
-    assert.deepEqual(JSON.parse(calls[1].options.body), { text: "നമസ്കാരം", model_id: "eleven_v4", language_code: "ml" });
+    assert.deepEqual(JSON.parse(calls[1].options.body), {
+      text: "നമസ്കാരം", model_id: "eleven_v4", language_code: "ml",
+      voice_settings: { stability: 0.55, style: 0, similarity_boost: 0.75, use_speaker_boost: true, speed: 1 },
+    });
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -137,6 +137,9 @@ function render() {
     ? (apiSavePending ? "Saving to local server…" : published ? "Published on local server" : "Saved to local server")
     : apiConnectionError ? "Local draft · backend unavailable"
       : storageAvailable ? (published ? "Published snapshot · saved locally" : "Draft saved in this browser") : "Browser storage unavailable";
+  $("voicePreviewButton").disabled = !apiConnected;
+  $("voicePreviewButton").querySelector("span").textContent = apiConnected ? "Play sample from configured voice" : "Start the local server to preview speech";
+  $("voicePreviewButton").closest(".voice-panel").querySelector(".tag").textContent = apiConnected ? "CONNECTED" : "SERVER VOICE";
   $("updatedAt").textContent = saved.updatedAt ? `◷ Edited ${new Date(saved.updatedAt).toLocaleString()}` : "◷ Draft saved locally";
   document.querySelectorAll(".trait-range").forEach(setRange);
   snapshot(profile); renderRoster(); renderVersions();
@@ -188,6 +191,34 @@ function hydrate(profile) {
 function showToast(message) {
   const toast = $("toast"); toast.textContent = message; toast.classList.add("show");
   clearTimeout(toastTimer); toastTimer = setTimeout(() => toast.classList.remove("show"), 2400);
+}
+
+async function previewVoice() {
+  const button = $("voicePreviewButton");
+  let audioUrl = null;
+  button.disabled = true;
+  button.querySelector("span").textContent = "Generating sample…";
+  try {
+    const response = await fetch("/api/admin/voice-preview", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ voiceRef: $("voicePreset").value, voice: { mood: $("voiceMood").value, speed: Number($("voiceSpeed").value) } })
+    });
+    if (!response.ok) {
+      const result = await response.json().catch(() => ({}));
+      throw new Error(result.error ?? `HTTP ${response.status}`);
+    }
+    audioUrl = URL.createObjectURL(await response.blob());
+    const player = new Audio(audioUrl);
+    player.addEventListener("ended", () => { URL.revokeObjectURL(audioUrl); audioUrl = null; }, { once: true });
+    player.addEventListener("error", () => { URL.revokeObjectURL(audioUrl); audioUrl = null; }, { once: true });
+    await player.play();
+  } catch (error) {
+    if (audioUrl) URL.revokeObjectURL(audioUrl);
+    showToast(`Voice preview failed: ${error.message}`);
+  } finally {
+    button.disabled = !apiConnected;
+    button.querySelector("span").textContent = apiConnected ? "Play sample from configured voice" : "Start the local server to preview speech";
+  }
 }
 
 function downloadProfile(profile = readForm()) {
@@ -305,6 +336,7 @@ $("resetButton").addEventListener("click", () => {
 });
 $("behaviorPreset").addEventListener("change", () => applyPreset($("behaviorPreset").value));
 $("refreshPreview").addEventListener("click", scenarioReply);
+$("voicePreviewButton").addEventListener("click", previewVoice);
 $("scenarioSelect").addEventListener("change", scenarioReply);
 $("versionList").addEventListener("click", (event) => { const button = event.target.closest("[data-restore-version]"); if (button) restoreVersion(Number(button.dataset.restoreVersion)); });
 $("importButton").addEventListener("click", () => $("importInput").click());

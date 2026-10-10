@@ -131,10 +131,18 @@ export function createLiveProviders(config) {
         assertNotAborted(signal);
         // Profile references select only configured account voices, never caller-supplied IDs.
         const voiceId = resolveConfiguredVoice(input.voiceRef, config);
+        const moodSettings = {
+          natural: { stability: 0.55, style: 0 },
+          cheerful: { stability: 0.38, style: 0.35 },
+          calm: { stability: 0.78, style: 0.08 },
+          playful: { stability: 0.3, style: 0.55 },
+        }[input.voice?.mood ?? "natural"] ?? { stability: 0.55, style: 0 };
+        const speed = Number.isInteger(input.voice?.speed) ? Math.max(70, Math.min(130, input.voice.speed)) / 100 : 1;
         const response = await fetch(`${ELEVENLABS_URL}/text-to-speech/${encodeURIComponent(voiceId)}?output_format=mp3_44100_128`, {
           method: "POST",
           headers: { "xi-api-key": config.elevenLabsApiKey, "Content-Type": "application/json", Accept: "audio/mpeg" },
-          body: JSON.stringify({ text: input.text, model_id: config.elevenLabsTtsModel, language_code: "ml" }),
+          body: JSON.stringify({ text: input.text, model_id: config.elevenLabsTtsModel, language_code: "ml",
+            voice_settings: { ...moodSettings, similarity_boost: 0.75, use_speaker_boost: true, speed } }),
           signal,
         });
         if (!response.ok) return readError(response, "ElevenLabs speech synthesis");

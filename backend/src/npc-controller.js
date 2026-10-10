@@ -53,6 +53,7 @@ export class NpcController {
         text: reply.replyMl,
         language: this.profile.language,
         voiceRef: this.profile.voiceRef,
+        voice: this.profile.voice,
       }, signal);
       if (!audio || typeof audio !== "object" || typeof audio.playable !== "boolean") {
         throw new Error("Speech synthesis returned invalid audio metadata.");

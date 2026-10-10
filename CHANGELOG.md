@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-11T04:45:01+05:30 — Connect dashboard voice controls to live speech
+
+- Changed: Added a same-origin voice preview endpoint that accepts only server-configured voice references. The dashboard can preview the selected voice; mood and speed now map to per-request ElevenLabs voice settings for companion and generated game NPC speech. Updated the voice panel and its API payload expectation.
+- Why: Make voice settings in the admin interface affect actual output and allow a short sample before publishing.
+- Validation: `npm run check` and `git diff --check` passed. No automated tests or live provider calls were run.
+- Limitations: Preview explicitly makes a provider request; GTA still assigns voices from its configured gender pools, then applies the dashboard's mood and speed settings.
+
 ## 2026-10-11T04:38:12+05:30 — Integrate dashboard with latest NPC voice and pedestrian systems
 
 - Changed: Merged current `main` native hold-to-talk, dynamic pedestrian personas, gender-aware voices, and unlimited-turn behavior into `dashboard`. Preserved the authenticated admin UI and server persistence, exposed safe configured voice choices, and applied published Manu dialogue/behavior/personality controls to generated game pedestrians.

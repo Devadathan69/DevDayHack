@@ -62,6 +62,15 @@ export function createNpcServer({ config, profile, memory, providers = createLiv
   let selectedAdminProfileId = initialAdminState.selectedId;
   let runtimeProfileIds = new Set(runtimeProfiles.map((item) => item.id));
 
+  function configuredVoiceOptions() {
+    const options = [{ voiceRef: profile.voiceRef, label: "Server default voice" }];
+    for (const [gender, pool] of [["male", config.elevenLabsMaleVoices], ["female", config.elevenLabsFemaleVoices]]) {
+      if (pool?.length) pool.forEach((voice, index) => options.push({ voiceRef: `configured-${gender}-${index}`, label: `${voice.name} · ${gender}` }));
+      else if (config[`elevenLabs${gender[0].toUpperCase()}${gender.slice(1)}VoiceId`]) options.push({ voiceRef: `configured-${gender}`, label: `Configured ${gender} voice` });
+    }
+    return options;
+  }
+
   const staticFiles = new Map([
     ["/", ["index.html", "text/html; charset=utf-8"]],
     ["/app.js", ["app.js", "text/javascript; charset=utf-8"]],
@@ -254,18 +263,25 @@ export function createNpcServer({ config, profile, memory, providers = createLiv
         return;
       }
 
-      if (request.method === "GET" && url.pathname === "/api/admin/profiles") {
-        const voiceOptions = [{ voiceRef: profile.voiceRef, label: "Server default voice" }];
-        for (const [gender, pool] of [["male", config.elevenLabsMaleVoices], ["female", config.elevenLabsFemaleVoices]]) {
-          if (pool?.length) pool.forEach((voice, index) => voiceOptions.push({ voiceRef: `configured-${gender}-${index}`, label: `${voice.name} · ${gender}` }));
-          else if (config[`elevenLabs${gender[0].toUpperCase()}${gender.slice(1)}VoiceId`]) voiceOptions.push({ voiceRef: `configured-${gender}`, label: `Configured ${gender} voice` });
+      if (request.method === "POST" && url.pathname === "/api/admin/voice-preview") {
+        const body = await jsonBody(request);
+        if (!configuredVoiceOptions().some((option) => option.voiceRef === body.voiceRef)) throw new Error("Choose a voice configured on this server.");
+        if (!body.voice || !["natural", "cheerful", "calm", "playful"].includes(body.voice.mood)
+          || !Number.isInteger(body.voice.speed) || body.voice.speed < 70 || body.voice.speed > 130) {
+          throw new Error("Voice preview settings are invalid.");
         }
+        const audio = await providers.tts.synthesize({ text: "ഇതാണ് നിങ്ങളുടെ ശബ്ദ മാതൃക.", language: "ml", voiceRef: body.voiceRef, voice: body.voice }, new AbortController().signal);
+        response.writeHead(200, { "Content-Type": audio.mimeType ?? "audio/mpeg", "Cache-Control": "no-store", "Content-Length": audio.bytes.length, "X-Content-Type-Options": "nosniff" });
+        response.end(audio.bytes);
+        return;
+      }
+      if (request.method === "GET" && url.pathname === "/api/admin/profiles") {
         sendJson(response, 200, {
           profiles: profileRecords,
           selectedId: selectedAdminProfileId,
           companionReady: Boolean(registry.getProfile(selectedAdminProfileId)),
           gameProfileId: profile.id,
-          voiceOptions,
+          voiceOptions: configuredVoiceOptions(),
         });
         return;
       }
