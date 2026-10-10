@@ -26,7 +26,7 @@ Participate solo or in a team of up to 4. Remove unused rows.
 - **Required environment variable names:** None for the mock demo.
 - **Start command:** `npm run demo`.
 - **Demo walkthrough:** Type a Malayalam utterance, observe the mock transcript/reply, then ask `മുമ്പ് ഞാൻ എന്താണ് പറഞ്ഞത്?`; use `/reset` to clear in-process memory.
-- **Checks performed and results:** `npm run check` passed; manual mock CLI recall walkthrough passed; `git diff --check` passed. No automated tests yet.
+- **Checks performed and results:** `npm run check` passed; manual mock CLI recall walkthrough passed; Markdown local-link check and `git diff --check` passed; read-only OpenAI and ElevenLabs authentication requests returned HTTP 200. No generation request or automated test suite yet.
 - **Known limitations or incomplete features:** Mock speech and dialogue only; no actual audio, live provider, durable memory, companion UI, or in-game bridge. See [README.md](README.md).
 - **Libraries, APIs, and public datasets used:** Node.js built-ins only; no external API or dataset used in the current demo.
 - **AI usage record:** [AI_USAGE.md](AI_USAGE.md)

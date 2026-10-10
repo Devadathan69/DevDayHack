@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-10T22:10:50+05:30 — Verify provider credentials and document game setup
+
+- Changed: Added `docs/game-integration.md`, linked it from the README, and recorded the local provider-authentication result in project records.
+- Why: Give the user a safe, ordered path from the current companion/backend scaffold to a future GTA plugin while distinguishing credential validity from a live conversation.
+- Validation: Read-only `GET /v1/models` (OpenAI) and `GET /v1/user` (ElevenLabs) requests using `.env` returned HTTP 200. No key values were printed; no generation endpoint or game process was used. Reviewed Plugin-SDK and Ultimate ASI Loader primary documentation. Markdown local-link check and `git diff --check` passed.
+- Limitations: The CLI remains mock-only; no live provider adapter, native plugin, executable compatibility record, or in-game demo exists yet.
+
 ## 2026-10-10T22:08:22+05:30 — Add the mock NPC backend slice
 
 - Changed: Added a dependency-free Node.js CLI, one validated original NPC profile, reusable controller/registry/session management, configurable mock speech/dialogue providers, and a bounded in-memory scoped memory store. Updated README, plan status, and ignored local audio/database artifacts.

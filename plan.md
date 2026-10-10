@@ -2,7 +2,7 @@
 
 **Delivery strategy:** integrate one NPC end to end, validate the demo, and only then enable additional NPC instances. Build reusable boundaries from the beginning without implementing city-scale behavior prematurely.
 
-**Status:** Phase 1 mock backend scaffold is implemented in this repository. It is not yet verified against GTA, live providers, microphone/audio devices, or persistent storage.
+**Status:** Phase 1 mock backend scaffold is implemented. The configured provider credentials in this checkout passed read-only authentication checks, but the application has no live provider adapters yet. GTA compatibility, microphone/audio behavior, and persistent storage remain unverified.
 
 ## 1. Goal and confirmed requirements
 

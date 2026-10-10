@@ -9,6 +9,7 @@ Record actual assistance after each meaningful task. Mark human review as pendin
 | Date and time with timezone | Tool / model, if known | Task | Assistance and affected files | Human review / corrections | Validation and result |
 | --- | --- | --- | --- | --- | --- |
 | 2026-10-10 22:08 IST | Codex | Start Phase 1 backend | Implemented profile validation, reusable NPC controller/registry, turn/session cancellation, mock providers, in-memory scoped memory, CLI demo, and project docs. | Pending human review. Changed the CLI to iterate input lines after the first piped run showed an unsettled prompt at EOF. | `npm run check`, two-turn mock Malayalam recall walkthrough, and `git diff --check` passed. No automated tests were added. |
+| 2026-10-10 22:10 IST | Codex | Check configured provider credentials and document game integration | Confirmed `.env` contains the expected variable names, made read-only OpenAI/ElevenLabs authentication requests, and added `docs/game-integration.md` with a staged no-game-first integration procedure. | Pending human review; secret values were not printed. | OpenAI model-list and ElevenLabs user-info endpoints both returned HTTP 200; Markdown local-link check and `git diff --check` passed. No text/audio generation or game launch was performed. |
 
 ## Template preparation
 

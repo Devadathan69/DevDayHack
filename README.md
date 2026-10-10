@@ -16,6 +16,8 @@ DevDay Exchange Community Hackathon: Kochi, 10–11 October 2026 at JAIN Univers
 
 The CLI does **not** record or play audio. The response is explicitly labeled as a mock; memory lasts only until the process exits. There is no live OpenAI or ElevenLabs integration, SQLite persistence, companion web UI, or GTA plugin yet. The installed game executable and mod-loader compatibility have not been verified.
 
+Provider credentials in `.env` are not consumed by this CLI; setting them does not turn the mock demo into a live conversation. See [game integration instructions](docs/game-integration.md) for the staged Windows setup; do not install a plugin based on an unverified executable label.
+
 ## Run the mock demo
 
 Prerequisite: Node.js 22.18 or newer. There are no third-party package dependencies, so `npm install` is not required.
@@ -42,4 +44,4 @@ This syntax check is not a test suite and does not verify live providers, storag
 - **Working demo:** Run the mock CLI as described above.
 - **Libraries, APIs, and datasets:** Node.js built-in modules only so far. No external API or dataset is used by the mock demo.
 
-See [plan.md](plan.md) for the architecture and milestone gates, [CHANGELOG.md](CHANGELOG.md) for implementation history, and [AI_USAGE.md](AI_USAGE.md) for assistance records. [SUBMISSION.md](SUBMISSION.md) is still in progress; participant and repository details must be completed before submission.
+See [plan.md](plan.md) for the architecture and milestone gates, [docs/game-integration.md](docs/game-integration.md) for the future native integration procedure, [CHANGELOG.md](CHANGELOG.md) for implementation history, and [AI_USAGE.md](AI_USAGE.md) for assistance records. [SUBMISSION.md](SUBMISSION.md) is still in progress; participant and repository details must be completed before submission.
