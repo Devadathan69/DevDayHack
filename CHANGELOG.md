@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-10T23:02:18+05:30 — Add runnable voice companion and persistent memory
+
+- Changed: Added a localhost browser companion, OpenAI Responses and ElevenLabs Scribe v2/Eleven v4 adapters, bounded PTT capture and turn handling, subtitle/audio delivery controls, local SQLite memory with scope isolation/reset, configuration/doctor commands, and deterministic adapter/storage checks. Updated README, integration guide, implementation status, submission notes, and AI usage record.
+- Why: Implement the planned end-to-end voice and memory path before attaching it to the game process.
+- Validation: `npm run check` passed. `npm test` passed five stubbed provider-adapter/SQLite checks. Mock server completed a two-turn Malayalam recall conversation over localhost HTTP. Live-mode configuration and page startup returned HTTP 200; no paid provider generation request was sent. The existing `.env` was read without printing values; OpenAI model, ElevenLabs model, and Malayalam-labeled voice availability were confirmed using read-only account endpoints.
+- Limitations: No live transcription/dialogue/audio generation was exercised; microphone permission and Malayalam pronunciation are unverified. The ASI remains a lifecycle logger and does not connect to GTA. The executable/version/SDK target is unresolved, so there is no in-game binding or game-tested key input. Hotkeys currently work only while the companion browser is focused.
+
 ## 2026-10-10T22:30:09+05:30 — Build native lifecycle smoke plugin
 
 - Changed: Added a dependency-free x86 ASI bootstrap and Visual Studio build script under `native/`; ignored native build artifacts; updated the README and integration guide with the current preflight and plugin status; recorded the actual Codex assistance.

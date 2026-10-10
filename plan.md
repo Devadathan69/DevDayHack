@@ -2,7 +2,7 @@
 
 **Delivery strategy:** integrate one NPC end to end, validate the demo, and only then enable additional NPC instances. Build reusable boundaries from the beginning without implementing city-scale behavior prematurely.
 
-**Status:** Phase 1 mock backend scaffold is implemented. The configured provider credentials in this checkout passed read-only authentication checks, but the application has no live provider adapters yet. GTA compatibility, microphone/audio behavior, and persistent storage remain unverified.
+**Status (10 October 2026):** The reusable controller, mock mode, local companion, OpenAI/ElevenLabs adapters, and SQLite memory are implemented. Syntax, deterministic adapter/storage checks, mock conversation recall, and live-mode server startup have been validated. The connected account has access to the configured OpenAI model, ElevenLabs Scribe, Eleven v4, and a Malayalam-labeled voice. No paid live voice turn or in-game exchange has been run. The game executable's identity/SDK compatibility is still unverified, so Phase 4 remains open and this is currently a standalone companion rather than a complete in-game mod.
 
 ## 1. Goal and confirmed requirements
 
@@ -545,9 +545,9 @@ Deliverables: compatibility record, harmless native smoke-test log, and a descri
 - [x] Implement `NpcController`, registry, and session state machine.
 - [x] Register exactly one profile through the reusable factory.
 - [x] Implement validated, short Malayalam responses and error/cancellation handling.
-- [ ] Add deterministic unit tests.
+- [x] Add deterministic unit and adapter tests.
 
-**Repository progress (10 October 2026):** A dependency-free Node.js CLI drives a mock turn through the profile registry/controller and in-memory memory store. JavaScript syntax checking and a two-turn Malayalam recall walkthrough have run. Phase 1 remains in progress until deterministic unit tests are added; the CLI does not capture or play audio.
+**Repository progress (10 October 2026):** The CLI and local companion both use the same profile registry/controller. Deterministic checks cover live-provider request construction, SQLite restart persistence, private scope isolation, delivery status, and stale reset writes. The standalone mock companion completed a two-turn Malayalam recall walkthrough over localhost HTTP. Mock mode remains typed-only; live microphone/provider quality still needs an opt-in real-device round trip.
 
 **Exit:** the single controller completes mock turns with no GTA/provider dependencies. A synthetic second ID can be used in tests, but a second in-game NPC is not implemented here.
 
@@ -555,10 +555,10 @@ Deliverables: shared interfaces, controller, registry, session state machine, mo
 
 ### Phase 2: persistence
 
-- [ ] Add SQLite migrations and parameterized memory storage.
-- [ ] Persist delivered turns and load bounded history after restart.
-- [ ] Add NPC/world/player isolation and confirmed reset controls.
-- [ ] Test that fabricated summaries and undelivered replies are not treated as confirmed shared history.
+- [x] Add SQLite schema setup and parameterized memory storage.
+- [x] Persist delivered turns and load bounded history after restart.
+- [x] Add NPC/world/player isolation and confirmed reset controls.
+- [x] Check that undelivered replies are excluded from history; summaries are not implemented in V1.
 
 **Exit:** the single NPC recalls prior information after restart, and synthetic-scope tests prove that reads/writes do not leak across IDs.
 
@@ -566,17 +566,17 @@ Deliverables: schema migrations, context-loading policy, generation-guarded rese
 
 ### Phase 3: voice companion
 
-- [ ] Implement PTT capture, supported audio upload, and transcription display.
-- [ ] Connect the ElevenLabs speech adapter for recognition and generation; populate provider-specific settings at this milestone.
-- [ ] Connect the OpenAI dialogue adapter without changing the controller contract.
+- [x] Implement PTT capture, bounded audio upload, and transcription display.
+- [x] Connect the ElevenLabs speech adapter for recognition and generation; add environment configuration.
+- [x] Connect the OpenAI dialogue adapter without changing the controller contract.
 - [ ] Validate a complete Malayalam voice exchange outside GTA before coupling it to input hooks.
-- [ ] Add playback acknowledgement and delivery-state handling.
-- [ ] Add processing indicators, subtitles, cancel, mute, and text-input fallback.
-- [ ] Add cost/time limits and stage-level latency measurements.
+- [x] Add playback acknowledgement and delivery-state handling.
+- [x] Add processing indicators, subtitles, cancel, mute, and text-input fallback.
+- [x] Add a live-turn cap, total turn timeout, and stage-level latency measurements.
 
-**Exit:** a complete live Malayalam voice exchange works independently of the game adapter.
+**Status:** implementation is present, but the exit condition is still pending a live microphone/provider/device round trip. Provider request shapes are checked with stubbed responses only.
 
-Deliverables: local companion UI, live provider adapters, stage timing, and working microphone/playback behavior while GTA has focus.
+Deliverables: local companion UI, live provider adapters, stage timing, and an unverified microphone/playback path. Audio behavior with GTA focused remains untested.
 
 ### Phase 4: in-game integration
 
@@ -806,16 +806,14 @@ At each step, keep one speaker active unless a new arbitration model has been im
 
 ## 17. Immediate next actions
 
-1. Collect executable metadata/hash and existing mod/loader inventory from the Windows machine.
-2. Confirm a safe, documented native target and load a harmless plugin.
-3. Scaffold domain interfaces, one original NPC profile, and a mock-driven controller/registry.
-4. Implement generation-guarded memory and cancellation before adding live speech.
-5. Build the companion's explicit PTT/readiness/playback flow.
-6. Implement the OpenAI brain and ElevenLabs speech adapters when reaching the live integration milestone; do not choose models prematurely.
-7. Integrate the single verified NPC and pass V1 acceptance tests.
-8. Freeze and rehearse the single-NPC demo; consider a second NPC only afterward.
+1. Establish the exact executable/version from the actual official game install and resolve the `gta-sa.exe` versus `installscript.vdf` filename mismatch.
+2. Confirm a documented native target and loader for that exact executable before writing game-specific hooks.
+3. Perform an opt-in live voice exchange outside GTA and check Malayalam transcription and pronunciation.
+4. Implement and validate the versioned localhost bridge, explicit NPC binding, and game lifecycle cancellation for the verified target.
+5. Run the complete in-game PTT, voice, memory, restart, and reset acceptance flow.
+6. Rehearse the tested demo; add another NPC only after V1 is stable.
 
-**Additional information needed before native work:** installation source, executable metadata/hash, and existing loader/mod inventory. **Not needed to finish this plan:** exact model, speech model, or voice selection.
+**Native work remains gated on:** a verified executable identity/compatible game SDK and loader. The current provider defaults are `gpt-4.1-mini`, ElevenLabs Scribe v2, and Eleven v4. The current local `.env` selects a Malayalam-labeled voice available in the account; no account-specific voice ID or API key is committed. Voice quality has not been checked.
 
 ## 18. External technical and policy references
 

@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#121a20">
+    <title>Malayalam NPC Companion</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">LOCAL GAME COMPANION</p>
+          <h1>Talk with Manu</h1>
+        </div>
+        <span id="modeBadge" class="badge">Starting…</span>
+      </header>
+
+      <section class="notice" aria-label="Game integration status">
+        <span class="notice-dot"></span>
+        <p id="gameMessage">Checking local service…</p>
+      </section>
+
+      <section class="panel character" aria-labelledby="characterName">
+        <div class="avatar" aria-hidden="true">മ</div>
+        <div class="character-copy">
+          <div class="name-line">
+            <h2 id="characterName">Manu</h2>
+            <span id="selectionState" class="status-pill">Not selected</span>
+          </div>
+          <p>Friendly, curious, and a little sarcastic. Speaks Malayalam.</p>
+        </div>
+        <button id="selectButton" class="secondary">Select Manu <kbd>F6</kbd></button>
+      </section>
+
+      <section class="panel conversation" aria-labelledby="conversationTitle">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">CONVERSATION</p>
+            <h2 id="conversationTitle">Your dialogue</h2>
+          </div>
+          <button id="resetButton" class="text-button" disabled>Reset memory</button>
+        </div>
+        <div id="messages" class="messages" role="log" aria-live="polite">
+          <p id="emptyState" class="empty-state">Select Manu to begin. Your NPC remembers delivered messages after the live server restarts.</p>
+        </div>
+        <div id="replyActions" class="reply-actions" hidden>
+          <button id="playButton" class="secondary" hidden>Play reply</button>
+          <button id="readButton" class="text-button">Continue with subtitles</button>
+        </div>
+      </section>
+
+      <section class="panel controls" aria-labelledby="controlsTitle">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">PUSH TO TALK</p>
+            <h2 id="controlsTitle">Speak in Malayalam</h2>
+          </div>
+          <span id="micState" class="muted">Microphone not enabled</span>
+        </div>
+        <button id="pttButton" class="ptt" disabled>
+          <span class="mic-icon" aria-hidden="true">●</span>
+          <span id="pttLabel">Hold F7 to speak</span>
+          <kbd>F7</kbd>
+        </button>
+        <p id="pttHint" class="hint">Hold F7 while this companion window is focused, or press and hold the button. Release to send a recording (up to 15 seconds).</p>
+        <div class="control-row">
+          <button id="cancelButton" class="secondary" disabled>Cancel <kbd>Esc</kbd></button>
+          <button id="muteButton" class="secondary" disabled>Mute voice</button>
+          <button id="textToggle" class="text-button">Use text instead</button>
+          <span id="turnStatus" class="turn-status" role="status">Ready when you are.</span>
+        </div>
+        <form id="textForm" class="text-form" hidden>
+          <label for="textInput">Type a message in Malayalam</label>
+          <div class="text-row">
+            <input id="textInput" maxlength="1000" autocomplete="off" placeholder="ഉദാ: നിന്റെ പ്രിയപ്പെട്ട പലഹാരം ഏതാണ്?">
+            <button class="primary" type="submit">Send</button>
+          </div>
+        </form>
+      </section>
+
+      <footer>
+        <span id="privacyFooter">Local companion · checking provider mode…</span>
+        <span id="limitLabel"></span>
+      </footer>
+    </main>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>

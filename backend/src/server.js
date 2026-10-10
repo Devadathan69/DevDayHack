@@ -1,0 +1,289 @@
+import { createServer } from "node:http";
+import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
+import { loadConfig } from "./config.js";
+import { NpcRegistry } from "./npc-registry.js";
+import { SessionManager } from "./session-manager.js";
+import { createMockProviders } from "./providers/mock-providers.js";
+import { createLiveProviders } from "./providers/live-providers.js";
+import { InMemoryMemoryStore } from "./memory/in-memory-memory-store.js";
+import { SqliteMemoryStore } from "./memory/sqlite-memory-store.js";
+
+const config = loadConfig();
+const profilePath = new URL("../../profiles/demo-npc-001.json", import.meta.url);
+const profile = JSON.parse(await readFile(fileURLToPath(profilePath), "utf8"));
+const memory = config.mode === "live" ? new SqliteMemoryStore(config.dataDirectory) : new InMemoryMemoryStore();
+const providers = config.mode === "live" ? createLiveProviders(config) : createMockProviders();
+const registry = new NpcRegistry([profile], { ...providers, memory });
+const manager = new SessionManager({ registry, memory });
+const companionDirectory = fileURLToPath(new URL("../../companion/", import.meta.url));
+const sessionToken = randomBytes(32).toString("hex");
+const audioItems = new Map();
+let liveTurns = 0;
+
+const staticFiles = new Map([
+  ["/", ["index.html", "text/html; charset=utf-8"]],
+  ["/app.js", ["app.js", "text/javascript; charset=utf-8"]],
+  ["/styles.css", ["styles.css", "text/css; charset=utf-8"]],
+]);
+
+function sendJson(response, status, value) {
+  response.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" });
+  response.end(JSON.stringify(value));
+}
+
+function getCookie(request) {
+  const cookie = request.headers.cookie?.split(";").map((part) => part.trim()).find((part) => part.startsWith("malayalam_session="));
+  return cookie?.slice("malayalam_session=".length) ?? "";
+}
+
+function isAuthenticated(request) {
+  const supplied = Buffer.from(getCookie(request));
+  const expected = Buffer.from(sessionToken);
+  if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) return false;
+  if (request.method !== "GET" && request.headers.origin !== `http://127.0.0.1:${config.port}`) return false;
+  return true;
+}
+
+function jsonBody(request, maxBytes = 16 * 1024) {
+  return new Promise((resolveBody, reject) => {
+    const chunks = [];
+    let size = 0;
+    let tooLarge = false;
+    request.on("data", (chunk) => {
+      if (tooLarge) return;
+      size += chunk.length;
+      if (size > maxBytes) {
+        tooLarge = true;
+        chunks.length = 0;
+        reject(new Error("Request body is too large."));
+        return;
+      }
+      chunks.push(chunk);
+    });
+    request.on("end", () => {
+      if (tooLarge) return;
+      try { resolveBody(JSON.parse(Buffer.concat(chunks).toString("utf8"))); }
+      catch { reject(new Error("Request body must be valid JSON.")); }
+    });
+    request.on("error", reject);
+  });
+}
+
+function audioBody(request) {
+  return new Promise((resolveBody, reject) => {
+    const chunks = [];
+    let size = 0;
+    let tooLarge = false;
+    request.on("data", (chunk) => {
+      if (tooLarge) return;
+      size += chunk.length;
+      if (size > config.maxAudioBytes) {
+        tooLarge = true;
+        chunks.length = 0;
+        reject(new Error(`Recording is too large. The limit is ${Math.round(config.maxAudioBytes / 1024 / 1024)} MiB.`));
+        return;
+      }
+      chunks.push(chunk);
+    });
+    request.on("end", () => { if (!tooLarge) resolveBody(Buffer.concat(chunks)); });
+    request.on("error", reject);
+  });
+}
+
+function saveAudio(bytes, mimeType, turnId) {
+  const id = randomUUID();
+  const expiresAt = Date.now() + 5 * 60_000;
+  audioItems.set(id, { bytes, mimeType, expiresAt, turnId });
+  while (audioItems.size > 8) audioItems.delete(audioItems.keys().next().value);
+  setTimeout(() => {
+    const item = audioItems.get(id);
+    if (item?.expiresAt === expiresAt) audioItems.delete(id);
+  }, 5 * 60_000).unref();
+  return `/api/audio/${id}`;
+}
+
+function clearAudioForTurn(turnId = null) {
+  for (const [id, item] of audioItems) {
+    if (turnId === null || item.turnId === turnId) audioItems.delete(id);
+  }
+}
+
+async function runTurn(request, audioInput, response) {
+  if (manager.state !== "SELECTED") throw new Error("Select Manu first with F6 or the Select Manu button.");
+  if (config.mode === "live" && liveTurns >= config.liveTurnLimit) {
+    throw new Error(`This run reached its ${config.liveTurnLimit}-turn live API limit. Restart the local server to begin another demo session.`);
+  }
+  if (config.mode === "live") liveTurns += 1;
+
+  let clientGone = false;
+  const onAborted = () => { clientGone = true; manager.cancel("The companion disconnected during this turn."); };
+  request.once("aborted", onAborted);
+  const timeout = setTimeout(() => manager.cancel("Turn timed out. Try a shorter message or check the provider connection."), config.turnTimeoutMs);
+  try {
+    const result = await manager.startTurn(audioInput);
+    if (clientGone || response.destroyed) return;
+    let audioUrl = null;
+    if (result.audio?.playable && Buffer.isBuffer(result.audio.bytes)) {
+      audioUrl = saveAudio(result.audio.bytes, result.audio.mimeType ?? "audio/mpeg", result.turnContext.turnId);
+    }
+    sendJson(response, 200, {
+      mode: config.mode,
+      turnId: result.turnContext.turnId,
+      transcript: result.transcript.text,
+      inputMode: result.transcript.inputMode ?? (audioInput.text ? "typed" : "voice"),
+      replyMl: result.reply.replyMl,
+      audioUrl,
+      speechError: result.speechError,
+      timings: result.timings,
+    });
+  } finally {
+    clearTimeout(timeout);
+    request.removeListener("aborted", onAborted);
+  }
+}
+
+const server = createServer(async (request, response) => {
+  try {
+    const host = request.headers.host;
+    if (host !== `127.0.0.1:${config.port}`) {
+      sendJson(response, 421, { error: "Use the local companion URL printed by the server." });
+      return;
+    }
+    const url = new URL(request.url, `http://${host}`);
+    if (request.method === "GET" && staticFiles.has(url.pathname)) {
+      const [filename, mime] = staticFiles.get(url.pathname);
+      const path = resolve(companionDirectory, filename);
+      const bytes = await readFile(path);
+      response.writeHead(200, {
+        "Content-Type": mime,
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; media-src 'self' blob:; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+        ...(url.pathname === "/" ? { "Set-Cookie": `malayalam_session=${sessionToken}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800` } : {}),
+      });
+      response.end(bytes);
+      return;
+    }
+    if (!url.pathname.startsWith("/api/")) {
+      sendJson(response, 404, { error: "Not found." });
+      return;
+    }
+    if (!isAuthenticated(request)) {
+      sendJson(response, 403, { error: "Open the local companion page first, then retry." });
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/status") {
+      sendJson(response, 200, {
+        mode: config.mode,
+        state: manager.state,
+        selected: manager.hasSelection,
+        npc: { id: profile.id, name: profile.displayName },
+        gameConnected: false,
+        gameMessage: "Game bridge is not connected. This companion runs standalone until a verified GTA integration is available.",
+        liveTurnsRemaining: config.mode === "live" ? Math.max(0, config.liveTurnLimit - liveTurns) : null,
+        audioLimitSeconds: config.maxAudioSeconds,
+      });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/history") {
+      if (!manager.hasSelection) {
+        sendJson(response, 200, { turns: [] });
+        return;
+      }
+      sendJson(response, 200, await memory.loadContext({ worldId: config.worldId, playerId: config.playerId, npcId: profile.id }));
+      return;
+    }
+    if (request.method === "GET" && url.pathname.startsWith("/api/audio/")) {
+      const id = url.pathname.slice("/api/audio/".length);
+      const item = audioItems.get(id);
+      if (!item || item.expiresAt < Date.now()) {
+        audioItems.delete(id);
+        sendJson(response, 404, { error: "This temporary reply audio expired. Generate a new reply to hear it." });
+        return;
+      }
+      response.writeHead(200, { "Content-Type": item.mimeType, "Cache-Control": "no-store", "Content-Length": item.bytes.length, "X-Content-Type-Options": "nosniff" });
+      response.end(item.bytes);
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/select") {
+      if (manager.state === "IDLE") {
+        manager.selectNpc({ npcId: profile.id, worldId: config.worldId, playerId: config.playerId,
+          gameSessionId: `companion-${randomUUID()}`, sceneGeneration: 0 });
+      }
+      sendJson(response, 200, { state: manager.state, npc: profile.displayName });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/deselect") {
+      clearAudioForTurn(manager.activeTurnId);
+      manager.invalidateScene();
+      sendJson(response, 200, { state: manager.state });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/turn") {
+      if (!/^audio\/(webm|ogg|wav|mpeg|mp4|mp3)$/iu.test((request.headers["content-type"] ?? "").split(";")[0])) {
+        sendJson(response, 415, { error: "Microphone recording must be WebM, Ogg, MP4, WAV, or MP3 audio." });
+        return;
+      }
+      const bytes = await audioBody(request);
+      if (!bytes.length) throw new Error("The microphone recording is empty. Hold F7 while speaking, then release it.");
+      await runTurn(request, { bytes, mimeType: (request.headers["content-type"] ?? "audio/webm").split(";")[0] }, response);
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/text-turn") {
+      const body = await jsonBody(request);
+      if (typeof body.text !== "string" || body.text.trim().length === 0 || body.text.length > 1000) {
+        throw new Error("Text fallback must contain 1–1,000 characters.");
+      }
+      await runTurn(request, { text: body.text }, response);
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/delivery") {
+      const body = await jsonBody(request);
+      if (!manager.activeTurnId || body.turnId !== manager.activeTurnId) throw new Error("This reply is no longer the active turn.");
+      await manager.acknowledgeDelivery({ subtitleDisplayed: body.subtitleDisplayed === true, audioPlayed: body.audioPlayed === true });
+      clearAudioForTurn(body.turnId);
+      sendJson(response, 200, { state: manager.state });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/cancel") {
+      clearAudioForTurn(manager.activeTurnId);
+      manager.cancel("Cancelled from the companion.");
+      sendJson(response, 200, { state: manager.state });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/reset") {
+      clearAudioForTurn();
+      const generation = await manager.resetSelectedMemory();
+      sendJson(response, 200, { generation });
+      return;
+    }
+    sendJson(response, 404, { error: "Not found." });
+  } catch (error) {
+    if (response.headersSent || response.destroyed) return;
+    const message = error instanceof Error ? error.message : "The request failed.";
+    sendJson(response, 400, { error: message });
+  }
+});
+
+server.on("clientError", (_error, socket) => socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n"));
+server.listen(config.port, config.host, () => {
+  console.log(`Malayalam NPC companion: http://${config.host}:${config.port}`);
+  console.log(`Mode: ${config.mode}${config.mode === "live" ? ` (${config.openAiModel}, ElevenLabs ${config.elevenLabsTtsModel})` : " (mock providers)"}`);
+  console.log(`Memory: ${config.mode === "live" ? resolve(config.dataDirectory, "memory.sqlite") : "in-memory (cleared on exit)"}`);
+  console.log("GTA bridge: disconnected; this build does not bind the conversation to an in-game pedestrian.");
+});
+
+function shutdown() {
+  manager.cancel("Local server shutting down.");
+  server.close(() => {
+    memory.close?.();
+    process.exit(0);
+  });
+  setTimeout(() => process.exit(1), 3_000).unref();
+}
+process.once("SIGINT", shutdown);
+process.once("SIGTERM", shutdown);

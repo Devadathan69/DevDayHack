@@ -16,7 +16,9 @@ export class NpcController {
     assertNotAborted(signal);
 
     this.#emit(turn, "TRANSCRIBING", onState);
+    const sttStartedAt = performance.now();
     const transcript = validateTranscript(await this.dependencies.stt.transcribe(audioInput, signal));
+    const speechRecognitionMs = Math.round(performance.now() - sttStartedAt);
     assertNotAborted(signal);
     await this.dependencies.memory.recordAcceptedInput(turn, transcript.text);
 
@@ -25,17 +27,21 @@ export class NpcController {
     if (history.generation !== turn.memoryGeneration) {
       throw new Error("Conversation memory changed during this turn. Please try again.");
     }
+    const dialogueStartedAt = performance.now();
     const reply = validateDialogueReply(await this.dependencies.brain.respond({
       profile: this.profile,
       transcript: transcript.text,
       history: history.turns,
     }, signal));
+    const dialogueMs = Math.round(performance.now() - dialogueStartedAt);
     assertNotAborted(signal);
     await this.dependencies.memory.recordGeneratedReply(turn, reply);
 
     this.#emit(turn, "SYNTHESIZING", onState);
     let audio = null;
     let speechError = null;
+    let speechSynthesisMs = 0;
+    const synthesisStartedAt = performance.now();
     try {
       audio = await this.dependencies.tts.synthesize({
         text: reply.replyMl,
@@ -49,10 +55,13 @@ export class NpcController {
     } catch (error) {
       if (signal.aborted) throw error;
       speechError = error instanceof Error ? error.message : "Speech synthesis failed.";
+    } finally {
+      speechSynthesisMs = Math.round(performance.now() - synthesisStartedAt);
     }
 
     this.#emit(turn, "AWAITING_DELIVERY", onState);
-    return { turnContext: turn, transcript, reply, audio, speechError };
+    return { turnContext: turn, transcript, reply, audio, speechError,
+      timings: { speechRecognitionMs, dialogueMs, speechSynthesisMs } };
   }
 
   async acknowledgeDelivery(context, receipt) {

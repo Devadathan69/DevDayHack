@@ -1,8 +1,8 @@
 # Integrate the companion with GTA San Andreas
 
-This is the staged Windows integration procedure for the **classic PC** game. The repository has a mock CLI/backend and a standalone x86 ASI lifecycle smoke-test plugin in `native/src/bootstrap.cpp`. The plugin can be built with `native/build.ps1`; it only logs initialization/shutdown and does not hook game APIs, inspect entities, send bridge messages, or implement NPC behavior. Its exports passed a load check in an x86 host process. It has not been installed into the game.
+This is the staged Windows integration procedure for the **classic PC** game. The repository now has a local browser companion, live OpenAI/ElevenLabs adapters, and SQLite memory, plus a standalone x86 ASI lifecycle smoke-test plugin in `native/src/bootstrap.cpp`. The plugin can be built with `native/build.ps1`; it only logs initialization/shutdown and does not hook game APIs, inspect entities, send bridge messages, or implement NPC behavior. Its exports passed a load check in an x86 host process. It has not been installed into the game. Live voice behavior has not been verified with a paid provider turn or microphone device.
 
-The local `.env` was checked on 10 October 2026: OpenAI and ElevenLabs returned HTTP 200 to authentication/account-read requests. Those checks did not generate text or audio. The current CLI does not load these variables and still uses mock providers.
+The local `.env` was checked on 10 October 2026: OpenAI and ElevenLabs returned HTTP 200 to authentication/account-read requests. The live companion reads keys on the backend only. Its server and page start in live mode without generating text or audio; actual transcription, dialogue generation, and synthesis have not been called during this implementation.
 
 ## 1. Identify the exact game installation
 
@@ -69,7 +69,7 @@ The backend should verify protocol version, session/scene generation, configured
 
 ## 5. Connect components and test away from live gameplay first
 
-1. Start the backend and companion and confirm they report their actual mode. Keep `.env` and all provider credentials in the backend environment only.
+1. Start `npm run start:live` and open the printed `127.0.0.1` URL. Confirm the page reports its actual mode and allow microphone access. Keep `.env` and all provider credentials in the backend environment only.
 2. Test the protocol with synthetic messages before loading the plugin. Verify duplicate events, malformed JSON, oversize frames, disconnection, cancellation, and scene-generation changes.
 3. Install only the no-op plugin and verify the game launches and shuts down normally. Inspect loader logs and the project-owned plugin log.
 4. Add target selection and entity invalidation, still with providers disabled. Verify that an invalid/despawned target cancels interaction without affecting the game.

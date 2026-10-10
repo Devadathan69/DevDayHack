@@ -1,58 +1,55 @@
-# Malayalam NPC Demo
+# Malayalam NPC Companion
 
-A hackathon prototype for a reusable Malayalam-speaking GTA San Andreas NPC. The current project has a mock-only backend and a native x86 lifecycle smoke-test plugin. Live speech, persistent storage, the game bridge, and in-game NPC behavior remain future steps in [plan.md](plan.md).
+A local Windows prototype for having a Malayalam conversation with the original character Manu. It provides a browser companion, live OpenAI dialogue, ElevenLabs speech recognition and speech generation, and private SQLite conversation memory.
 
-## Event
+**Current boundary:** the companion runs independently of GTA. The ASI in this repository is still only a lifecycle logger; it does not select or bind an in-game pedestrian. The installed `gta-sa.exe` is x86, but its version and compatibility are not established, so this build must not be described as a working in-game mod.
 
-DevDay Exchange Community Hackathon: Kochi, 10–11 October 2026 at JAIN University, Kochi. [Event and registration](https://luma.com/z10nz8gp) · [Rules](RULES.md).
+## Start the live companion
 
-## Current implementation
+Prerequisites: Windows, Node.js 22.18 or newer, a microphone and speakers, provider API access, and a supported browser.
 
-- One original character profile (`Manu`) is validated and instantiated through a reusable NPC registry/controller.
-- The CLI accepts typed Malayalam as mock speech input, runs a mock dialogue response, and acknowledges subtitle delivery.
-- The in-memory store scopes recent delivered dialogue by world, player, and NPC. The mock can recall the previous delivered player message when asked.
-- Turn IDs, cancellation, scene invalidation, reset generations, response validation, and single-turn ownership are represented in the backend.
-- Mock providers can be configured for delays, cancellation, malformed results, and stage failures for future development checks.
-- A standalone x86 ASI bootstrap logs its initialization and shutdown outside the game folder. Its exports were loaded by an x86 host smoke check; it does not access game APIs or implement NPC behavior.
+The project has no npm package dependencies. In a fresh checkout, create `.env` from `.env.example` and set `OPENAI_API_KEY`, `ELEVENLABS_API_KEY`, and `ELEVENLABS_VOICE_ID` to a Malayalam-capable voice in your account. Keep those values in `.env`; never put them in a profile or browser setting. The current local checkout already has these settings configured.
 
-The CLI does **not** record or play audio. The response is explicitly labeled as a mock; memory lasts only until the process exits. There is no live OpenAI or ElevenLabs integration, SQLite persistence, companion web UI, native bridge, or in-game NPC behavior. The ASI has not been installed into the game. The executable's architecture is x86, but its version and mod-loader compatibility have not been verified.
-
-Provider credentials in `.env` are not consumed by this CLI; setting them does not turn the mock demo into a live conversation. See [game integration instructions](docs/game-integration.md) for the staged Windows setup; do not add gameplay hooks based on an unverified executable label.
-
-## Run the mock demo
-
-Prerequisite: Node.js 22.18 or newer. There are no third-party package dependencies, so `npm install` is not required.
-
-```sh
-npm run demo
-```
-
-Type Malayalam into the prompt. Ask `മുമ്പ് ഞാൻ എന്താണ് പറഞ്ഞത്?` after a turn to exercise the mock recall path. Use `/reset` to clear this process's NPC memory and `/quit` to exit.
-
-Run a JavaScript syntax check with:
-
-```sh
-npm run check
-```
-
-This syntax check is not a test suite and does not verify live providers, storage restart behavior, microphone/audio devices, or GTA integration.
-
-## Build the native smoke-test plugin
-
-Prerequisite: Visual Studio with the x86/x64 C++ build tools installed.
+From the project folder, run:
 
 ```powershell
-powershell -NoProfile -File .\native\build.ps1
+npm run doctor -- --live
+npm run start:live
 ```
 
-The script creates `native/build/MalayalamNpcBootstrap.asi`, which is ignored by Git. The plugin only writes lifecycle entries to `%LOCALAPPDATA%\MalayalamNpcDemo\logs\game-bridge.log`; it does not hook gameplay or communicate with the backend. The current build passed an x86 host-process load check, but has not been loaded into the game.
+Open **http://127.0.0.1:4177** in the browser and allow microphone access. The server prints the actual URL if you change `UI_PORT`. Click **Select Manu** (or press **F6** while the companion window is focused), then hold **F7** while speaking Malayalam and release it to send the recording. Press **Escape** to cancel a recording or active turn. Use **Mute voice** to mute generated audio. The typed-message option is available as a fallback. The browser may require a click on **Play reply** before it allows audio playback.
 
-## Project details
+F6, F7, and Escape work while the **companion browser window has focus**. They are not registered as GTA or global hotkeys. The companion does not know which pedestrian is in front of the player.
 
-- **Project name:** Malayalam NPC Demo
-- **Short description:** A profile-driven backend foundation for talking to and remembering a Malayalam-speaking game NPC.
-- **Technology:** Node.js ES modules and built-in libraries for the mock backend; standalone Win32 C++ x86 ASI bootstrap built with MSVC.
-- **Working demo:** Run the mock CLI as described above.
-- **Libraries, APIs, and datasets:** Node.js built-in modules and Win32 APIs. Ultimate ASI Loader v9.7.4 was downloaded from its [official release](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/tag/v9.7.4) and hash-checked as the candidate x86 loader, but it has not been installed into the game. No live AI API or dataset is used by the current demo.
+Live mode uses OpenAI's [Responses API](https://platform.openai.com/docs/api-reference/responses) with `gpt-4.1-mini` by default. ElevenLabs handles [speech transcription](https://elevenlabs.io/docs/api-reference/speech-to-text/convert) with Scribe v2 and [speech generation](https://elevenlabs.io/docs/api-reference/text-to-speech/convert) with Eleven v4. The current `.env` is configured with a Malayalam-labeled voice from the connected ElevenLabs account; choose a different account voice with `ELEVENLABS_VOICE_ID`. Eleven v4's [supported language list includes Malayalam](https://elevenlabs.io/docs/help-center/other/what-languages-do-you-support). Recognition and pronunciation still need a real microphone/provider check.
 
-See [plan.md](plan.md) for the architecture and milestone gates, [docs/game-integration.md](docs/game-integration.md) for the future native integration procedure, [CHANGELOG.md](CHANGELOG.md) for implementation history, and [AI_USAGE.md](AI_USAGE.md) for assistance records. [SUBMISSION.md](SUBMISSION.md) is still in progress; participant and repository details must be completed before submission.
+Live mode allows 25 turns per server run by default; change `LIVE_TURN_LIMIT` in `.env` to adjust the cap. The turn cap limits repeated API calls but is not a monetary cost estimate. OpenAI and ElevenLabs can receive the transcript and bounded dialogue context; ElevenLabs receives the captured audio and generated reply text. Raw microphone audio is not written to disk. Delivered transcripts and replies are saved outside the repository under `%LOCALAPPDATA%\MalayalamNpcDemo\data\memory.sqlite`; generated audio is held temporarily in memory and deleted when delivered, cancelled, reset, or expired. Use **Reset memory** to erase Manu's local history. Provider-side retention follows each provider's account and service settings.
+
+To stop the companion, press **Ctrl+C** in its terminal.
+
+## Run without provider calls
+
+```powershell
+npm run start
+```
+
+This starts a labeled mock companion with typed input only and in-memory history. It makes no provider requests, captures no microphone audio, and clears memory when the process exits. The older terminal walkthrough remains available with `npm run demo`.
+
+## Checks and native build
+
+```powershell
+npm run check
+npm test
+npm run build:native
+```
+
+`npm test` exercises provider request construction with stubbed HTTP responses and checks SQLite persistence, delivery state, reset, and scope isolation. It does not call paid APIs. `npm run build:native` builds the existing x86 lifecycle-only ASI with Visual Studio C++ tools; it does not add gameplay hooks.
+
+## Project status
+
+- **Implemented:** profile-based reusable NPC controller, local companion UI, live provider adapters, microphone PTT, typed fallback, subtitles, voice playback/mute, cancellation, turn limits/timeouts, SQLite persistence and reset, scoped history, and local mock mode.
+- **Validated here:** JS syntax check; deterministic provider-adapter and SQLite tests; mock companion text conversation and recall over HTTP; live-mode server/config/page startup without a paid provider generation call; native x86 lifecycle build was validated in an earlier commit.
+- **Not validated:** a paid live speech/dialogue round trip, Malayalam voice quality, microphone/playback while GTA has focus, or any in-game interaction.
+- **Still required for a GTA mod:** identify a compatible executable/SDK target, implement and test game-side NPC selection and lifecycle binding, connect the versioned bridge, and validate the result in the actual game. The current game integration guide records why that gate remains open.
+
+See [plan.md](plan.md), [game integration](docs/game-integration.md), [CHANGELOG.md](CHANGELOG.md), and [AI_USAGE.md](AI_USAGE.md). Submission details in [SUBMISSION.md](SUBMISSION.md) still need participant and repository information.

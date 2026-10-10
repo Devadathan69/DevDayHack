@@ -12,6 +12,14 @@ export class SessionManager {
     this.state = "IDLE";
   }
 
+  get activeTurnId() {
+    return this.#active?.context.turnId ?? null;
+  }
+
+  get hasSelection() {
+    return this.#selection !== null;
+  }
+
   selectNpc({ npcId, worldId, playerId, gameSessionId, sceneGeneration }) {
     if (this.#active) throw new Error("Finish or cancel the current turn before selecting an NPC.");
     const profile = this.registry.getProfile(npcId);
