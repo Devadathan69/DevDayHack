@@ -5,10 +5,12 @@ import { validateWorldSnapshot } from "./world-context.js";
 
 const givenNames = ["Aven", "Tavi", "Neri", "Lumi", "Ren", "Sora", "Kavi", "Arin", "Devi", "Mika", "Remi", "Ira", "Ellis", "Robin", "Sage", "Rumi"];
 const familyNames = ["Vale", "Reed", "Brook", "Moss", "Stone", "Lane", "Grove", "Lake", "Fern", "Cove", "Wren", "Ash", "Hale", "Lark", "Pine", "Bell"];
-const dispositions = ["patient and observant", "curious and energetic", "reserved but thoughtful", "playful and candid", "practical and reassuring", "reflective and optimistic", "precise and inquisitive", "easygoing and quietly witty"];
+const dispositions = ["warm, patient and genuinely interested in people", "bright, curious and welcoming", "quietly confident, attentive and kind", "playful, encouraging and candid", "practical, dependable and reassuring", "optimistic, thoughtful and open-minded", "resourceful, curious and generous with advice", "easygoing, sociable and quietly witty"];
 const occupations = ["bicycle repairer", "bookshop assistant", "radio technician", "community gardener", "map illustrator", "bakery assistant", "ceramics maker", "library archivist"];
 const hobbies = ["sketching street signs", "collecting unusual postcards", "solving word puzzles", "growing herbs", "building small model boats", "watching the night sky", "making paper sculptures", "recording everyday city sounds"];
-const speakingStyles = ["short, direct phrases", "gentle questions and measured pauses", "warm observations with light wordplay", "careful explanations without jargon", "lively but concise comparisons", "understated humor and plain language", "thoughtful questions before offering advice", "calm, conversational storytelling"];
+const speakingStyles = ["plain friendly language, with useful detail when asked", "attentive answers and an occasional thoughtful question", "warm observations and light, well-timed wordplay", "clear explanations that sound like a helpful neighbor", "lively conversation with relatable comparisons", "easygoing banter and understated humor", "direct helpful answers before any follow-up question", "relaxed storytelling when it fits the topic"];
+const values = ["making newcomers feel welcome", "helping people become more confident", "sharing useful knowledge without showing off", "keeping promises and looking out for neighbors", "finding a practical answer together", "staying curious and learning from others", "being honest without being unkind", "finding something good in an ordinary day"];
+const quirks = ["occasionally compares a tricky problem to fixing a bicycle", "has a soft spot for a clever question", "likes a small joke but never forces one", "notices a useful detail others often miss", "enjoys a good story but knows when to get to the point", "is pleasantly surprised by someone willing to learn", "can laugh at their own small mistakes", "likes turning a confusing question into a simple next step"];
 
 function derivedGender(metadata) {
   // Installed model metadata outranks live CPed classifications, which can mislabel female models.
@@ -73,7 +75,8 @@ export function createPedestrianProfile(baseProfile, scope, metadata, voiceConfi
   const choose = (values, offset) => values[digest.readUInt32BE(offset) % values.length];
   // Scope alone selects traits: changing game gender/model metadata cannot change personality.
   const traits = Object.freeze({ disposition: choose(dispositions, 8), occupation: choose(occupations, 12),
-    hobby: choose(hobbies, 16), speakingStyle: choose(speakingStyles, 20) });
+    hobby: choose(hobbies, 16), speakingStyle: choose(speakingStyles, 20),
+    value: choose(values, 24), quirk: choose(quirks, 28) });
   // The compact pool-scope tag guarantees distinct display names within one game session.
   const gender = pedestrianGender(pedestrian);
   const selectedVoice = selectNpcVoice(gender, sceneGeneration, voiceConfig);
@@ -87,8 +90,8 @@ export function createPedestrianProfile(baseProfile, scope, metadata, voiceConfi
     pedestrian,
     traits,
     personalityControls: baseProfile.traits,
-    personality: `${traits.disposition}; speaks in ${traits.speakingStyle}. Works as a ${traits.occupation} and enjoys ${traits.hobby}.`,
-    originalBackstory: `An original fictional city resident who works as a ${traits.occupation}. Outside work, ${displayName} enjoys ${traits.hobby}. These invented details are not claims about a real person or a canon game character.`,
+    personality: `${traits.disposition}. Uses ${traits.speakingStyle}. Cares about ${traits.value}. ${traits.quirk[0].toUpperCase()}${traits.quirk.slice(1)}.`,
+    originalBackstory: `Works as a ${traits.occupation} and spends some free time ${traits.hobby}. Neighbors appreciate this resident for ${traits.value}. Work and hobbies are part of their life, not topics they bring into every answer.`,
     voiceRef,
     language: baseProfile.language,
     memoryPolicy: baseProfile.memoryPolicy,

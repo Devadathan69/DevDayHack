@@ -57,7 +57,7 @@ export function loadConfig(env = process.env) {
     maxAudioSeconds: integerSetting(env, "MAX_AUDIO_SECONDS", 15, 3, 30),
     maxAudioBytes: integerSetting(env, "MAX_AUDIO_BYTES", 4 * 1024 * 1024, 64 * 1024, 20 * 1024 * 1024),
     liveTurnLimit: integerSetting(env, "LIVE_TURN_LIMIT", 0, 0, 500),
-    openAiModel: env.OPENAI_MODEL ?? "gpt-4.1-mini",
+    openAiModel: env.OPENAI_MODEL ?? "gpt-5.4-mini",
     elevenLabsVoiceId: env.ELEVENLABS_VOICE_ID,
     elevenLabsMaleVoiceId: optionalVoiceId(env, "ELEVENLABS_MALE_VOICE_ID"),
     elevenLabsFemaleVoiceId: optionalVoiceId(env, "ELEVENLABS_FEMALE_VOICE_ID"),

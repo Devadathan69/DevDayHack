@@ -234,6 +234,51 @@ test("dialogue adapter sends bounded history to the OpenAI Responses API", async
   }
 });
 
+test("resident dialogue stays immersive, adapts detail and receives requested factual tips only", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push(JSON.parse(options.body));
+    return new Response(JSON.stringify({ output_text: "ഒരു ചെറിയ രഹസ്യം: ROCKETMAN. പഴയ സേവ് സുരക്ഷിതമായി വെക്കൂ." }));
+  };
+  try {
+    const base = { displayName: "Damu (1X)", personality: "warm and curious", originalBackstory: "repairs bicycles",
+      dialogue: { replyLength: "balanced", language: "ml", boundary: "Keep it friendly. Never claim to control the game or know things outside this conversation." } };
+    await createLiveProviders(config).brain.respond({ profile: base, transcript: "jetpack code", history: [] }, new AbortController().signal);
+    const request = calls[0], input = JSON.parse(request.input);
+    assert.match(request.instructions, /resident of San Andreas/u);
+    assert.match(request.instructions, /never claim you are in a game/u);
+    assert.doesNotMatch(request.instructions, /original fictional NPC in a local game demo/u);
+    assert.doesNotMatch(request.instructions, /know things outside this conversation/u);
+    assert.match(request.instructions, /not a rigid sentence quota/u);
+    assert.match(request.instructions, /without a parenthesized scope identifier/u);
+    assert.match(request.instructions, /general reference facts are knowledge/u);
+    assert.ok(input.localReferenceFacts.some((fact) => fact.code === "ROCKETMAN"));
+    assert.ok(input.localReferenceFacts.some((fact) => fact.id === "save"));
+    await createLiveProviders(config).brain.respond({ profile: base, transcript: "How is your day?", history: [] }, new AbortController().signal);
+    assert.ok(JSON.parse(calls[1].input).localReferenceFacts.every((fact) => !fact.code));
+    assert.equal(calls.length, 2);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("reasoning models reserve answer tokens without adding unsupported controls to other models", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push(JSON.parse(options.body));
+    return new Response(JSON.stringify({ output_text: "ശരി, പറയൂ." }));
+  };
+  try {
+    const input = { profile: { displayName: "Manu", personality: "warm", originalBackstory: "a local resident" }, transcript: "Hello", history: [] };
+    await createLiveProviders({ ...config, openAiModel: "gpt-5.4-mini" }).brain.respond(input, new AbortController().signal);
+    assert.deepEqual(calls[0].reasoning, { effort: "low" });
+    assert.equal(calls[0].max_output_tokens, 1000);
+    await createLiveProviders(config).brain.respond(input, new AbortController().signal);
+    assert.equal(calls[1].reasoning, undefined);
+    assert.equal(calls[1].max_output_tokens, 450);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test("dialogue JSON includes bounded grounded observations and history without extra calls or changing published preferences", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
@@ -279,7 +324,8 @@ test("dialogue JSON includes bounded grounded observations and history without e
     assert.match(request.instructions, /never arbitrary game commands/u);
     assert.ok(request.instructions.includes(boundary));
     assert.match(request.instructions, /natural English code-switching/u);
-    assert.match(request.instructions, /two or three concise sentences/u);
+    assert.match(request.instructions, /compact explanation or a few useful steps/u);
+    assert.match(request.instructions, /not a rigid sentence quota/u);
     assert.doesNotMatch(request.instructions, /No descriptive game-scene data is currently provided/u);
   } finally { globalThis.fetch = originalFetch; }
 });

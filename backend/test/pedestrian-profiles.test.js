@@ -130,6 +130,19 @@ test("same-gender pedestrians receive distinct names and independently varied tr
   assert.ok([...occupations.values()].every((styles) => styles.size > 1));
 });
 
+test("residents have warm individual values and quirks without forcing canned biography", () => {
+  const profiles = Array.from({ length: 40 }, (_, index) => createPedestrianProfile(base,
+    { worldId: "personality-city", gameSessionId: "gta-personas", sceneGeneration: index * 256 + 1 }, { pedType: 4 }));
+  assert.ok(new Set(profiles.map((profile) => profile.traits.value)).size > 1);
+  assert.ok(new Set(profiles.map((profile) => profile.traits.quirk)).size > 1);
+  for (const profile of profiles) {
+    assert.ok(profile.personality.length <= 500 && profile.originalBackstory.length <= 1000);
+    assert.match(profile.originalBackstory, /not topics they bring into every answer/u);
+    assert.doesNotMatch(profile.originalBackstory, /original fictional|invented details|canon game character/u);
+    assert.doesNotMatch(profile.traits.speakingStyle, /short, direct phrases/u);
+  }
+});
+
 test("generated voice references select approved gender overrides without changing identity or traits", () => {
   const voiceConfig = { elevenLabsMaleVoiceId: "test-approved-male", elevenLabsFemaleVoiceId: "test-approved-female" };
   for (const [pedType, expected] of [[4, "configured-male"], [5, "configured-female"], [7, "configured-male"]]) {

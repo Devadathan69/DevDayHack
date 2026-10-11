@@ -4,6 +4,14 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-11T08:44:10+05:30 — Loosen resident personalities without breaking immersion
+
+- Changed: Stable generated residents now have warmer varied dispositions, individual values/quirks and adaptive speaking styles rather than canned job introductions. Prompts keep them fully in character and forbid claiming they are in a game, an NPC, AI, mod or demo; the user's latest instruction supersedes the earlier fourth-wall-awareness idea.
+- Changed: Added original curated local-reference summaries for geography, navigation, saving, skills and optional classic-PC codes. Codes are supplied only for explicit requests, with exact letters and clean-save/version cautions; the mod never executes them or invents current objectives/progress. Sources are credited in the integration guide; no canonical dialogue/guide paragraphs were copied.
+- Model: Preserved and, with explicit user approval, included the pre-existing config edit selecting gpt-5.4-mini; the sanitized example matches it. GPT-5 requests use low reasoning with answer headroom; other models do not receive unsupported reasoning controls. Reply validation remains Malayalam/400 characters, and world/memory/voice scoping stays unchanged.
+- Affected: backend persona/live-provider/knowledge modules and tests, config, environment example, package checks and related release docs.
+- Validation: Targeted tests 47/47 and full npm test 105/105 passed with stubs; npm run check and whitespace checks passed. No extra paid live turn, native rebuild or claimed live-quality result for this follow-up. Existing verified ASI/world/voice/PTT is unchanged; one backend restart loads new behavior. Live model compliance/naturalness remains prompt-guided rather than an absolute guarantee.
+
 ## 2026-10-11T08:03:28+05:30 ? Record submitted implementation SHA and verified push
 
 - Documentation only: completed approved public team credits, repository/demo/check records and final SHA in SUBMISSION.md. Verified implementation 5f6d19717539a7dc098c236f32173f3f6b9f9635 was pushed to origin/main; this follow-up changes no demo implementation.
