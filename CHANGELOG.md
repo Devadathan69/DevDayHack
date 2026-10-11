@@ -8,7 +8,7 @@ Record each meaningful project change during the event, newest first. Update thi
 
 - Changed: Added the user-provided demo as `demo/demo.mp4`, tracked through Git LFS, and linked it from the README.
 - Why: Include the requested working-demo footage with the project submission.
-- Validation: Source and repository-copy SHA-256 hashes match; file size is 329,146,686 bytes and Git LFS tracking is configured. Push status is reported separately after the push.
+- Validation: Source and repository-copy SHA-256 hashes match; file size is 329,146,686 bytes. Git LFS upload completed and commit `0d4b0786209afdbf72a98ed2f581ca35113ac87c` was pushed to `origin/main`.
 - Limitations: Video is a large Git LFS object; access depends on GitHub LFS availability and quota.
 
 ## 2026-10-11T08:54:02+05:30 ? Record final immersive follow-up revision
