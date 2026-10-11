@@ -260,7 +260,8 @@ export function createNpcServer({ config, profile, memory, providers = createLiv
       const bridgeAuthenticated = isBridgeAuthenticated(request, url.pathname);
       if (!bridgeAuthenticated && !isBrowserAuthenticated(request)) {
         if (request.method === "POST" && url.pathname === "/api/select") {
-          console.warn("NPC selection rejected: bridge authentication failed.");
+          const suppliedToken = request.headers["x-bridge-token"];
+          console.warn(`NPC selection rejected: bridge authentication failed (token header present=${typeof suppliedToken === "string"}, length=${typeof suppliedToken === "string" ? suppliedToken.length : 0}, expected length=${bridgeToken.length}).`);
         }
         sendJson(response, 403, { error: "Open the local companion page first, then retry." });
         return;

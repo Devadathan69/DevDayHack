@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-11T07:50:57+05:30 — Diagnose rejected bridge token length
+
+- Changed: Authentication rejection logs now report whether a bridge-token header arrived and its length, without logging token contents.
+- Why: The rebuilt ASI is installed, but its NPC selection still receives HTTP 403; distinguishing an absent header from a stale token will identify the remaining issue.
+- Validation: Syntax check pending; retry after restarting the backend.
+- Limitations: The server must restart to load the diagnostic, then GTA must retry NPC selection.
+
 ## 2026-10-11T07:47:14+05:30 — Fix WinHTTP bridge header handling
 
 - Changed: The native bridge now terminates authentication and content-type headers with CR/LF, checks `WinHttpAddRequestHeaders` results, and stops the request if header insertion fails.
