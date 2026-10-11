@@ -4,6 +4,10 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-11T08:54:02+05:30 ? Record final immersive follow-up revision
+
+- Documentation only: SUBMISSION.md now records pushed implementation d2a6ed8dd7d49cd5d8ef160340d10538beebddb8 and distinguishes its 105-test offline prompt/model verification from earlier live native/world demonstration. No later code is included in this metadata commit. Documentation links/whitespace checked; restart backend once for the updated behavior.
+
 ## 2026-10-11T08:44:10+05:30 — Loosen resident personalities without breaking immersion
 
 - Changed: Stable generated residents now have warmer varied dispositions, individual values/quirks and adaptive speaking styles rather than canned job introductions. Prompts keep them fully in character and forbid claiming they are in a game, an NPC, AI, mod or demo; the user's latest instruction supersedes the earlier fourth-wall-awareness idea.

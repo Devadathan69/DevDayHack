@@ -7,7 +7,7 @@ Final local-demo submission record for DevDay Exchange Community Hackathon, Koch
 - **Project name:** Malayalam NPC Demo
 - **Short description:** A world-aware Malayalam conversation mod for GTA San Andreas. Nearby pedestrians stand/focus during chat, use distinct original personalities and approved voices, and respond to typed or hold-R speech with spoken subtitles. Verified location, game time and measured weather ground live dialogue; private SQLite memory and a localhost NPC configuration dashboard complete the local demo.
 - **Code repository URL:** https://github.com/Devadathan69/DevDayHack
-- **Final submitted implementation commit SHA:** [`5f6d19717539a7dc098c236f32173f3f6b9f9635`](https://github.com/Devadathan69/DevDayHack/commit/5f6d19717539a7dc098c236f32173f3f6b9f9635). This is the verified demo implementation; the following documentation-only revision records its SHA without adding later implementation changes.
+- **Final submitted implementation commit SHA:** [`d2a6ed8dd7d49cd5d8ef160340d10538beebddb8`](https://github.com/Devadathan69/DevDayHack/commit/d2a6ed8dd7d49cd5d8ef160340d10538beebddb8). This includes the 105-test immersive-personality/advice follow-up. Native/world/voice/PTT live behavior was demonstrated at the earlier `5f6d197` revision; the latest prompt/model follow-up is offline-verified and requires a backend restart/live tone check. The following revision records metadata only.
 - **Working demo:** Local Windows installation, not a public hosted deployment. Start one backend with `npm start`; companion **http://127.0.0.1:4177**, dashboard **http://127.0.0.1:4177/admin**. Build/install the ASI as documented below, launch GTA manually, load a save, approach a pedestrian, press F6/Enter and type + Enter or hold R until Recording, speak Malayalam and release. Live providers consume account usage.
 - **Demo access requirements:** Windows, Node.js 22.18+, a recognized GTA executable with x86 ASI loader for the game demo, Visual Studio C++ tools for rebuilding, a default microphone with desktop-app access, and approved OpenAI/ElevenLabs accounts. The browser-only companion does not require GTA.
 
@@ -45,7 +45,7 @@ Public credits supplied and approved by the team; four participants, within the 
 - [x] README setup and demo instructions match the verified implementation.
 - [x] Actual checks, failures/corrections and known limitations are documented.
 - [x] Meaningful work is preserved in coherent commits without history rewriting.
-- [x] Final implementation SHA recorded; push of `5f6d197` to GitHub main succeeded. The finalization revision changes documentation only.
+- [x] Final implementation SHA recorded; push of `d2a6ed8` to GitHub main succeeded. This finalization revision changes documentation only.
 - [x] Credentials/real voice IDs/private runtime files are excluded; only approved public participant credits are included.
 - [x] Team action: submit the repository/demo through the organizers' announced channel before the deadline; organizer submission is not performed by this GitHub push.
 
