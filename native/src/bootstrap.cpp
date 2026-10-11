@@ -641,9 +641,19 @@ bool BackendSelect(unsigned int pedHandle, unsigned long generation) {
         ",\"gender\":\"" + NpcInteraction::Gender(pedestrian) +
         "\",\"modelGender\":\"" + NpcInteraction::ModelGender(pedestrian) + "\"}}";
     const auto response = HttpRequest(L"POST", L"/api/select", body, L"application/json");
-    if (!response.ok()) return false;
-    const auto name = Utf8ToWide(ExtractJsonString(response.body, "displayName"));
-    if (name.empty()) return false;
+    if (!response.ok()) {
+        const auto error = Utf8ToWide(ExtractJsonString(response.body, "error").substr(0, 160));
+        std::wstring diagnostic = L"NPC selection request failed: HTTP " + std::to_wstring(response.status);
+        if (!error.empty()) diagnostic += L" - " + error;
+        WriteLog(diagnostic.c_str());
+        return false;
+    }
+    const auto displayName = ExtractJsonString(response.body, "displayName");
+    const auto name = Utf8ToWide(displayName);
+    if (name.empty()) {
+        WriteLog(L"NPC selection response was successful but did not contain a display name.");
+        return false;
+    }
     if (generation == g_conversationGeneration.load() && g_loggedPersonaGeneration.exchange(generation) != generation) {
         wchar_t diagnostic[384]{};
         const auto modelGender = Utf8ToWide(NpcInteraction::ModelGender(pedestrian));

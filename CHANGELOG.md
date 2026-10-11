@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-11T07:42:44+05:30 — Log native NPC selection failures
+
+- Changed: The game bridge now records the HTTP status and safe server error text when NPC selection fails, and logs a missing display name separately.
+- Why: The overlay's generic preparation message did not distinguish a rejected server request from a transport or response-parsing failure.
+- Validation: `npm run build:native` succeeded and produced `native/build/MalayalamNpcBootstrap.asi` (368,640 bytes); `git diff --check` passed.
+- Limitations: The diagnostic ASI has not been installed. GTA must be closed before replacing the loaded plugin; then one retry is needed to capture the specific failure.
+
 ## 2026-10-11T05:55:06+05:30 — Discover Visual Studio Insiders for native builds
 
 - Changed: Native build discovery now includes prerelease Visual Studio instances; README setup notes the supported stable and Insiders installations.
