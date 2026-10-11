@@ -33,7 +33,7 @@ call "$vsDevCmd" -no_logo -arch=x86 -host_arch=x64
 if errorlevel 1 exit /b %errorlevel%
 cd /d "$buildDirectory"
 if errorlevel 1 exit /b %errorlevel%
-cl.exe /nologo /LD /MT /EHsc /std:c++17 /W4 /DUNICODE /D_UNICODE /Fe:"$outputPath" "$sourcePath" "$overlaySourcePath" "$holdSourcePath" "$microphoneSourcePath" /link /MACHINE:X86 /IMPLIB:"$importLibraryPath" d3d9.lib user32.lib
+cl.exe /nologo /LD /MT /EHsc /std:c++17 /W4 /DUNICODE /D_UNICODE /Fe:"$outputPath" "$sourcePath" "$overlaySourcePath" "$holdSourcePath" "$microphoneSourcePath" /link /MACHINE:X86 /IMPLIB:"$importLibraryPath" d3d9.lib user32.lib shell32.lib
 exit /b %errorlevel%
 "@
 

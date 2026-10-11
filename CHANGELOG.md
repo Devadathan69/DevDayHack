@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-11T07:59:36+05:30 — Resolve GTA bridge-token discovery
+
+- Changed: The native plugin now resolves Local AppData with `SHGetFolderPathW`, validates token-file reads, and logs safe failure reasons. The native build links Shell32.
+- Why: Server diagnostics showed the GTA process sent no bridge-token header at all, even though the token file was valid for the server account.
+- Validation: `npm run build:native` succeeded and produced a 370,688-byte x86 ASI.
+- Limitations: The updated ASI must replace the current game-folder file and the game must restart before authentication can be verified.
+
 ## 2026-10-11T07:50:57+05:30 — Diagnose rejected bridge token length
 
 - Changed: Authentication rejection logs now report whether a bridge-token header arrived and its length, without logging token contents.

@@ -4,6 +4,7 @@
 #include <objidl.h>
 #include <gdiplus.h>
 #include <mmsystem.h>
+#include <shlobj.h>
 
 #include <string>
 #include <vector>
@@ -528,26 +529,38 @@ HttpResponse HttpRequest(const wchar_t* verb, const wchar_t* path,
 // ============================================================================
 
 bool LoadBridgeToken() {
-    DWORD req = GetEnvironmentVariableW(L"LOCALAPPDATA", nullptr, 0);
-    if (req == 0) return false;
-    std::wstring base(req, L'\0');
-    DWORD len = GetEnvironmentVariableW(L"LOCALAPPDATA", base.data(), req);
-    if (len == 0 || len >= req) return false;
-    base.resize(len);
+    std::wstring base(MAX_PATH, L'\0');
+    if (FAILED(SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA, nullptr, SHGFP_TYPE_CURRENT, base.data())) || base[0] == L'\0') {
+        WriteLog(L"Could not locate the current user's Local AppData folder for the bridge token.");
+        return false;
+    }
+    base.resize(std::wcslen(base.c_str()));
     std::wstring tokenPath = base + L"\\MalayalamNpcDemo\\bridge-token";
 
     HANDLE f = CreateFileW(tokenPath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
         OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (f == INVALID_HANDLE_VALUE) return false;
+    if (f == INVALID_HANDLE_VALUE) {
+        wchar_t diagnostic[128]{};
+        swprintf_s(diagnostic, L"Could not open the bridge-token file (Windows error %lu).", GetLastError());
+        WriteLog(diagnostic);
+        return false;
+    }
     char buf[256]{};
     DWORD bytesRead = 0;
-    ReadFile(f, buf, sizeof(buf) - 1, &bytesRead, nullptr);
+    const BOOL readSucceeded = ReadFile(f, buf, sizeof(buf) - 1, &bytesRead, nullptr);
     CloseHandle(f);
+    if (!readSucceeded) {
+        WriteLog(L"Could not read the bridge-token file.");
+        return false;
+    }
     const std::string contents(buf, bytesRead);
     const size_t tokenStart = contents.find("token=");
     const size_t tokenEnd = contents.find_first_of("\r\n", tokenStart);
     const size_t portStart = contents.find("port=");
-    if (tokenStart == std::string::npos || tokenEnd == std::string::npos || portStart == std::string::npos) return false;
+    if (tokenStart == std::string::npos || tokenEnd == std::string::npos || portStart == std::string::npos) {
+        WriteLog(L"Bridge-token file is missing required fields.");
+        return false;
+    }
 
     const std::string token = contents.substr(tokenStart + 6, tokenEnd - (tokenStart + 6));
     const size_t portEnd = contents.find_first_of("\r\n", portStart);
@@ -558,7 +571,10 @@ bool LoadBridgeToken() {
     const bool validHex = token.size() == 64 && std::all_of(token.begin(), token.end(), [](char c) {
         return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
     });
-    if (!validHex || end == portText.c_str() || *end != '\0' || port < 1024 || port > 65535) return false;
+    if (!validHex || end == portText.c_str() || *end != '\0' || port < 1024 || port > 65535) {
+        WriteLog(L"Bridge-token file contains an invalid token or port.");
+        return false;
+    }
 
     {
         std::lock_guard<std::mutex> lock(g_bridgeConfigMutex);
