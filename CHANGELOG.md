@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-11T05:55:06+05:30 — Discover Visual Studio Insiders for native builds
+
+- Changed: Native build discovery now includes prerelease Visual Studio instances; README setup notes the supported stable and Insiders installations.
+- Why: The installed x86/x64 compiler was under Visual Studio Insiders, which `vswhere` omitted without its prerelease option.
+- Validation: `npm run build:native` succeeded with the x86 MSVC toolset and produced `native/build/MalayalamNpcBootstrap.asi` (367,616 bytes). The loader and game executable were present and GTA was closed. Installer and a direct temporary-file write to the supplied game directory both failed with `FileNotFoundException`; no game files were changed.
+- Limitations: The ASI is built but not installed; in-game loading has not been verified.
+
 ## 2026-10-11T04:45:01+05:30 — Connect dashboard voice controls to live speech
 
 - Changed: Added a same-origin voice preview endpoint that accepts only server-configured voice references. The dashboard can preview the selected voice; mood and speed now map to per-request ElevenLabs voice settings for companion and generated game NPC speech. Updated the voice panel and its API payload expectation.

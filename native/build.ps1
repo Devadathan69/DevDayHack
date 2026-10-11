@@ -9,7 +9,7 @@ if (-not (Test-Path -LiteralPath $vswhere)) {
     throw "Visual Studio Installer's vswhere.exe was not found. Install Visual Studio C++ build tools first."
 }
 
-$vsPath = (& $vswhere -latest -products "*" -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath).Trim()
+$vsPath = (& $vswhere -latest -prerelease -products "*" -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath).Trim()
 if (-not $vsPath) {
     throw "The Visual C++ x86/x64 build tools were not found. Install the Desktop development with C++ workload."
 }

@@ -89,7 +89,7 @@ npm run test:native -- -AudioFile 'C:\Temp\test-reply.mp3'
 
 This additionally reproduces MCI's file-lock/thread-local alias behavior and tests the actual production audio dispatcher across five separate turn workers, cancellation and stale requests. No speech fixture is bundled or committed. Direct3D GPU smoke tests and their build commands are documented in the integration guide. `npm run test:native -- -Renderer` also builds/runs them through the native runner. The native runner covers the integrated hold and microphone modules; hardware capture occurs only when the user explicitly holds R in an active game conversation.
 
-Native checks/builds require Visual Studio's Desktop development with C++ workload. Builds do not change game files; installation is a separate explicit command.
+Native checks/builds require Visual Studio's Desktop development with C++ workload. The build script discovers both stable and Insiders installations with the x86/x64 toolset. Builds do not change game files; installation is a separate explicit command.
 
 ## Project status
 
