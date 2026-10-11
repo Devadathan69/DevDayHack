@@ -41,7 +41,7 @@ function normalizeAdminState(state, seedProfile) {
   return { profiles, selectedId };
 }
 
-export function createNpcServer({ config, profile, memory, providers = createLiveProviders(config), adminState = null, persistAdminState = async () => {} }) {
+export function createNpcServer({ config, profile, memory, providers = createLiveProviders(config), adminState = null, persistAdminState = async () => {}, clock = Date.now }) {
   const initialAdminState = normalizeAdminState(adminState, profile);
   const adminProfiles = initialAdminState.profiles;
   const profileForRuntime = (item) => item.activeVersion === null
@@ -50,7 +50,7 @@ export function createNpcServer({ config, profile, memory, providers = createLiv
   const runtimeProfiles = adminProfiles.map(profileForRuntime).filter(Boolean);
   const registry = new NpcRegistry([profile], { ...providers, memory });
   for (const runtimeProfile of runtimeProfiles) registry.upsert(runtimeProfile);
-  const manager = new SessionManager({ registry, memory });
+  const manager = new SessionManager({ registry, memory, clock });
   const companionDirectory = fileURLToPath(new URL("../../companion/", import.meta.url));
   const sessionToken = randomBytes(32).toString("hex");
   const bridgeToken = randomBytes(32).toString("hex");
@@ -79,6 +79,7 @@ export function createNpcServer({ config, profile, memory, providers = createLiv
     ["/admin/", ["index.html", "text/html; charset=utf-8", "admin"]],
     ["/admin/index.html", ["index.html", "text/html; charset=utf-8", "admin"]],
     ["/admin/app.js", ["app.js", "text/javascript; charset=utf-8", "admin"]],
+    ["/admin/world-context-view.js", ["world-context-view.js", "text/javascript; charset=utf-8", "admin"]],
     ["/admin/styles.css", ["styles.css", "text/css; charset=utf-8", "admin"]],
     ["/admin/extras.css", ["extras.css", "text/css; charset=utf-8", "admin"]],
   ]);
@@ -324,6 +325,8 @@ export function createNpcServer({ config, profile, memory, providers = createLiv
           state: manager.state,
           selected: manager.hasSelection,
           activeTurnId: manager.activeTurnId,
+          worldContext: manager.lastWorldContext,
+          dialogueWorldContext: manager.worldContext,
           npc: { id: statusNpcId, name: statusProfile.displayName, gender: statusProfile.gender ?? "unknown", personality: statusProfile.personality },
           gameConnected,
           gameMessage: gameConnected
@@ -356,7 +359,12 @@ export function createNpcServer({ config, profile, memory, providers = createLiv
         return;
       }
       if (request.method === "POST" && url.pathname === "/api/select") {
-        const body = bridgeAuthenticated ? validateBridgeSelection(await jsonBody(request)) : {};
+        const requestedSelection = await jsonBody(request);
+        if (!bridgeAuthenticated && Object.hasOwn(requestedSelection, "worldContext")) {
+          sendJson(response, 403, { error: "Only the authenticated native bridge may submit world context." });
+          return;
+        }
+        const body = bridgeAuthenticated ? validateBridgeSelection(requestedSelection, clock()) : {};
         if (bridgeAuthenticated || !manager.hasSelection) {
           const previousTurnId = manager.activeTurnId;
           // Ped pool generations are meaningful only within their game process/session.
@@ -367,13 +375,17 @@ export function createNpcServer({ config, profile, memory, providers = createLiv
           let selectedProfile;
           if (bridgeAuthenticated) {
             const existing = registry.getProfile(pedestrianProfileId(profileScope));
-            if (body.pedestrian) {
+            const pedestrian = body.pedestrian ?? existing?.pedestrian;
+            if (pedestrian) {
               const gameBase = registry.getProfile(profile.id) ?? profile;
-              const candidate = createPedestrianProfile(gameBase, profileScope, body.pedestrian, config);
+              const candidate = createPedestrianProfile(gameBase, profileScope, pedestrian, config);
               if (existing && ["gender", "voiceRef", "displayName"].some((field) => existing[field] !== candidate[field])) {
                 if (manager.selectedConversationKey?.npcId === existing.id) {
                   manager.cancel("NPC model/voice metadata changed; the previous reply was discarded.");
                 }
+                selectedProfile = registry.replaceProfile(candidate);
+              } else if (existing && ["personalityControls", "dialogue", "behavior", "voice", "language", "memoryPolicy"]
+                .some((field) => JSON.stringify(existing[field]) !== JSON.stringify(candidate[field]))) {
                 selectedProfile = registry.replaceProfile(candidate);
               } else {
                 selectedProfile = existing ?? registry.registerProfile(candidate);
@@ -386,7 +398,8 @@ export function createNpcServer({ config, profile, memory, providers = createLiv
           }
           manager.selectNpc({ npcId: selectedProfile.id, worldId, playerId: config.playerId,
             gameSessionId: bridgeAuthenticated ? body.gameSessionId : `companion-${randomUUID()}`,
-            sceneGeneration: bridgeAuthenticated ? body.sceneGeneration : 0 });
+            sceneGeneration: bridgeAuthenticated ? body.sceneGeneration : 0,
+            worldContext: bridgeAuthenticated ? body.worldContext : null });
           if (previousTurnId && manager.activeTurnId !== previousTurnId) clearAudioForTurn(previousTurnId);
           sendJson(response, 200, { state: manager.state, npc: selectedProfile.displayName, npcId: selectedProfile.id,
             displayName: selectedProfile.displayName, gender: selectedProfile.gender ?? "unknown", personality: selectedProfile.personality });
@@ -479,7 +492,19 @@ async function startServer() {
   const memory = new SqliteMemoryStore(config.dataDirectory);
   const { server, manager, bridgeToken } = createNpcServer({ config, profile, memory, adminState, persistAdminState });
   const bridgeTokenFileContents = `token=${bridgeToken}\nport=${config.port}\n`;
+  const onListenError = (error) => {
+    memory.close();
+    if (error.code === "EADDRINUSE") {
+      console.error(`Cannot start the local NPC backend: port ${config.port} is already in use. Close the existing backend with Ctrl+C or stop the process using this port, then retry npm start. Alternatively, choose a free UI_PORT. Existing bridge credentials were left unchanged.`);
+    } else {
+      console.error(`Cannot start the local NPC backend on ${config.host}:${config.port} (${error.code ?? "unknown error"}). Check local network permissions and retry npm start.`);
+    }
+    process.exitCode = 1;
+  };
+  server.once("error", onListenError);
   server.listen(config.port, config.host, async () => {
+    server.removeListener("error", onListenError);
+    // Publish credentials only after the socket is successfully bound.
     try {
       await mkdir(dirname(config.bridgeTokenPath), { recursive: true });
       await writeFile(config.bridgeTokenPath, bridgeTokenFileContents, { encoding: "utf8", mode: 0o600 });

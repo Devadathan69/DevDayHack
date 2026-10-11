@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createLiveProviders } from "../src/providers/live-providers.js";
+import { describeWorldContext, validateWorldSnapshot, WORLD_CONTEXT_TTL_MS } from "../src/world-context.js";
 
 const config = {
   openAiApiKey: "test-openai-key",
@@ -231,4 +232,124 @@ test("dialogue adapter sends bounded history to the OpenAI Responses API", async
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("dialogue JSON includes bounded grounded observations and history without extra calls or changing published preferences", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url: String(url), options });
+    return new Response(JSON.stringify({ output_text: "ഇപ്പോൾ ഇവിടെ മഴയാണ്." }));
+  };
+  try {
+    const now = Date.now();
+    const worldContext = describeWorldContext(validateWorldSnapshot({ capturedAt: now,
+      location: { name: "Ganton", zoneCode: "GANTON", position: { x: 2490, y: -1670, z: 13, area: 0 } },
+      time: { hour: 21, minute: 7 }, weather: { id: 8, rainIntensity: 0.75 } }),
+    { gameSessionId: "gta-grounded", sceneGeneration: 257 });
+    const boundary = "Never claim to know things outside the conversation.";
+    await createLiveProviders(config).brain.respond({
+      profile: { displayName: "Manu", personality: "friendly", originalBackstory: "A fictional guide from Invented Town.",
+        dialogue: { replyLength: "detailed", language: "ml-en", boundary }, behavior: { sceneAware: true } },
+      transcript: "Where are we and what is the weather?",
+      history: Array.from({ length: 25 }, (_, index) => ({ player: `${index}:` + "p".repeat(1100), npc: "ന".repeat(500),
+        turnId: "private-turn-id", privateToken: "private-history-token" })),
+      worldContext: { ...worldContext, privateToken: "private-world-token" },
+    }, new AbortController().signal);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, "https://api.openai.com/v1/responses");
+    const request = JSON.parse(calls[0].options.body);
+    const payload = JSON.parse(request.input);
+    assert.equal(request.store, false);
+    assert.equal(payload.deliveredHistory.length, 12);
+    assert.ok(payload.deliveredHistory[0].player.startsWith("13:"));
+    assert.ok(payload.deliveredHistory.every((turn) => turn.player.length <= 1000 && turn.npc.length <= 400));
+    assert.deepEqual(Object.keys(payload.deliveredHistory[0]), ["player", "npc"]);
+    assert.equal(payload.currentWorldContext.source, "gta-native");
+    assert.equal(payload.currentWorldContext.location.name, "Ganton");
+    assert.deepEqual(payload.currentWorldContext.time, { hour: 21, minute: 7 });
+    assert.equal(payload.currentWorldContext.weather.condition, "rainy");
+    assert.equal(payload.currentWorldContext.weather.rainIntensity, 0.75);
+    assert.ok(JSON.stringify(payload.currentWorldContext).length < 1500);
+    assert.doesNotMatch(request.input, /private-world-token|private-history-token|private-turn-id/u);
+    assert.match(request.instructions, /fictional biography/u);
+    assert.match(request.instructions, /explicitly provided conversation context/u);
+    assert.match(request.instructions, /never the computer clock/u);
+    assert.match(request.instructions, /earlier scene statements are not current facts/u);
+    assert.match(request.instructions, /never arbitrary game commands/u);
+    assert.ok(request.instructions.includes(boundary));
+    assert.match(request.instructions, /natural English code-switching/u);
+    assert.match(request.instructions, /two or three concise sentences/u);
+    assert.doesNotMatch(request.instructions, /No descriptive game-scene data is currently provided/u);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("dialogue treats missing/stale/browser context as unknown and sceneAware false suppresses even fresh native facts", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (_url, options) => {
+    calls.push(JSON.parse(options.body));
+    return new Response(JSON.stringify({ output_text: "ഇപ്പോഴത്തെ സമയം അറിയില്ല." }));
+  };
+  try {
+    const now = Date.now();
+    const scope = { gameSessionId: "gta-grounded", sceneGeneration: 1 };
+    const fresh = describeWorldContext(validateWorldSnapshot({ capturedAt: now,
+      location: { name: "Ganton" }, time: { hour: 12, minute: 30 }, weather: { id: 1 } }), scope);
+    const stale = describeWorldContext({ ...validateWorldSnapshot({ capturedAt: now, time: { hour: 1, minute: 2 } }),
+      capturedAt: now - WORLD_CONTEXT_TTL_MS - 1000 }, scope);
+    for (const [worldContext, sceneAware] of [[undefined, true], [stale, true], [{ ...fresh, source: "browser" }, true], [fresh, false]]) {
+      await createLiveProviders(config).brain.respond({ profile: { displayName: "Manu", personality: "friendly",
+        originalBackstory: "A fictional biography, not the current scene.", behavior: { sceneAware } },
+      transcript: "What time is it?", history: [{ player: "Earlier we were in Ganton", npc: "ശരി." }], worldContext }, new AbortController().signal);
+      const payload = JSON.parse(calls.at(-1).input);
+      assert.equal(payload.currentWorldContext.available, false);
+      assert.equal(payload.currentWorldContext.location, null);
+      assert.equal(payload.currentWorldContext.time, null);
+      assert.equal(payload.currentWorldContext.weather, null);
+      assert.match(calls.at(-1).instructions, /Say you cannot currently tell/u);
+    }
+    assert.equal(calls.length, 4);
+    assert.match(calls.at(-1).instructions, /Scene awareness is disabled/u);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("dialogue JSON uses actual rain/transition observations and never forwards a target-weather forecast", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (_url, options) => {
+    calls.push(JSON.parse(options.body));
+    return new Response(JSON.stringify({ output_text: "കാലാവസ്ഥ മാറിക്കൊണ്ടിരിക്കുന്നു." }));
+  };
+  try {
+    const now = Date.now();
+    const scope = { gameSessionId: "gta-actual-weather", sceneGeneration: 257 };
+    const cases = [
+      [{ id: 1, targetId: 8, condition: "transitioning", rainIntensity: 0.05 }, "transitioning"],
+      [{ id: 1, targetId: 1, condition: "rainy", rainIntensity: 0.4 }, "rainy"],
+      [{ id: 8, targetId: 8, condition: "transitioning", rainIntensity: 0 }, "transitioning"],
+      [{ id: 1, targetId: 8, condition: null, rainIntensity: null }, null],
+      [{ targetId: 8 }, null],
+    ];
+    for (const [weather, expected] of cases) {
+      const scene = describeWorldContext(validateWorldSnapshot({ capturedAt: now, weather }), scope);
+      await createLiveProviders(config).brain.respond({ profile: { displayName: "Manu", personality: "friendly",
+        originalBackstory: "Fictional biography." }, transcript: "What weather is actually happening?", history: [], worldContext: scene },
+      new AbortController().signal);
+      const request = calls.at(-1);
+      const actual = JSON.parse(request.input).currentWorldContext.weather;
+      if (weather.id === undefined) assert.equal(actual, null);
+      else {
+        assert.equal(actual.id, weather.id);
+        assert.equal(actual.condition, expected);
+        assert.equal(actual.rainIntensity, weather.rainIntensity);
+        assert.equal(Object.hasOwn(actual, "targetId"), false);
+      }
+      assert.doesNotMatch(request.input, /targetId|targetWeatherId/u);
+      assert.match(request.instructions, /greater than 0\.05 confirms observed rain/u);
+      assert.match(request.instructions, /not that a target condition has occurred/u);
+      assert.match(request.instructions, /Never derive a condition from an enum alone/u);
+    }
+    assert.equal(calls.length, cases.length);
+  } finally { globalThis.fetch = originalFetch; }
 });

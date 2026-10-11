@@ -1,4 +1,5 @@
 import { assertNotAborted, validateDialogueReply, validateProfile, validateTranscript, validateTurnContext } from "./domain.js";
+import { describeWorldContext } from "./world-context.js";
 
 export class NpcController {
   constructor(profile, dependencies) {
@@ -10,7 +11,7 @@ export class NpcController {
     this.events = dependencies.events ?? (() => {});
   }
 
-  async handleUtterance(context, audioInput, signal, onState = () => {}) {
+  async handleUtterance(context, audioInput, signal, onState = () => {}, getWorldContext = () => describeWorldContext(null, context)) {
     const turn = validateTurnContext(context);
     if (turn.npcId !== this.profile.id) throw new Error("Turn NPC does not match this controller's profile.");
     assertNotAborted(signal);
@@ -37,6 +38,7 @@ export class NpcController {
       profile: this.profile,
       transcript: transcript.text,
       history: history.turns,
+      worldContext: this.profile.behavior?.sceneAware === false ? describeWorldContext(null, turn) : getWorldContext(),
     }, signal));
     const dialogueMs = Math.round(performance.now() - dialogueStartedAt);
     assertNotAborted(signal);

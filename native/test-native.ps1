@@ -15,6 +15,11 @@ $holdOutput = Join-Path $buildDirectory "ped-hold-tests.exe"
 $microphoneSource = Join-Path $PSScriptRoot "src\microphone.cpp"
 $microphoneTestSource = Join-Path $PSScriptRoot "test\microphone.test.cpp"
 $microphoneOutput = Join-Path $buildDirectory "microphone-tests.exe"
+$worldSource = Join-Path $PSScriptRoot "src\world-context.cpp"
+$worldTestSource = Join-Path $PSScriptRoot "test\world-context.test.cpp"
+$worldOutput = Join-Path $buildDirectory "world-context-tests.exe"
+$worldWireSource = Join-Path $PSScriptRoot "test\world-wire.test.cpp"
+$worldWireOutput = Join-Path $buildDirectory "world-wire-tests.exe"
 $rendererSource = Join-Path $PSScriptRoot "src\d3d-overlay.cpp"
 $commandFile = Join-Path $buildDirectory "test-native.cmd"
 $audioOutput = Join-Path $buildDirectory "audio-thread-tests.exe"
@@ -23,7 +28,7 @@ if ($AudioFile) {
     $audioSource = Join-Path $PSScriptRoot "test\audio-thread.test.cpp"
     $audioBuild = @"
 if errorlevel 1 exit /b %errorlevel%
-cl.exe /nologo /MT /EHsc /std:c++17 /W4 /DUNICODE /D_UNICODE /Fe:"$audioOutput" "$audioSource" "$rendererSource" "$holdSource" "$microphoneSource" /link /MACHINE:X86
+cl.exe /nologo /MT /EHsc /std:c++17 /W4 /DUNICODE /D_UNICODE /Fe:"$audioOutput" "$audioSource" "$rendererSource" "$holdSource" "$microphoneSource" "$worldSource" /link /MACHINE:X86
 "@
 }
 $rendererBuild = ""
@@ -49,6 +54,10 @@ if errorlevel 1 exit /b %errorlevel%
 cl.exe /nologo /MT /EHsc /std:c++17 /W4 /WX /Fe:"$holdOutput" "$holdTestSource" "$holdSource" /link /MACHINE:X86
 if errorlevel 1 exit /b %errorlevel%
 cl.exe /nologo /MT /EHsc /std:c++17 /W4 /WX /Fe:"$microphoneOutput" "$microphoneTestSource" "$microphoneSource" /link /MACHINE:X86
+if errorlevel 1 exit /b %errorlevel%
+cl.exe /nologo /MT /EHsc /std:c++17 /W4 /WX /Fe:"$worldOutput" "$worldTestSource" "$worldSource" /link /MACHINE:X86
+if errorlevel 1 exit /b %errorlevel%
+cl.exe /nologo /MT /EHsc /std:c++17 /W4 /WX /Fe:"$worldWireOutput" "$worldWireSource" /link /MACHINE:X86
 $audioBuild
 $rendererBuild
 exit /b %errorlevel%
@@ -72,6 +81,11 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Pedestrian hold tests failed with exit code $LASTEXITCODE." }
     & $microphoneOutput
     if ($LASTEXITCODE -ne 0) { throw "Microphone synthetic tests failed with exit code $LASTEXITCODE." }
+    if ($GameExecutable) { & $worldOutput $GameExecutable (Split-Path $GameExecutable -Parent) }
+    else { & $worldOutput }
+    if ($LASTEXITCODE -ne 0) { throw "World sampler tests failed with exit code $LASTEXITCODE." }
+    & $worldWireOutput
+    if ($LASTEXITCODE -ne 0) { throw "World serialization tests failed with exit code $LASTEXITCODE." }
     if ($Renderer) {
         & $rendererOutput
         if ($LASTEXITCODE -ne 0) { throw "Factory renderer tests failed." }

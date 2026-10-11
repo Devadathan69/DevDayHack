@@ -478,7 +478,9 @@ test("browser and metadata-free initial native selection keep the original Manu 
   assert.equal(selected.displayName, "Manu");
   assert.equal(selected.npcId, profile.id);
   assert.equal(selected.personality, profile.personality);
-  assert.deepEqual((await app.call("/api/status", browser)).json.npc, { id: profile.id, name: "Manu" });
+  assert.deepEqual((await app.call("/api/status", browser)).json.npc, {
+    id: profile.id, name: "Manu", gender: "unknown", personality: profile.personality,
+  });
   assert.equal(app.calls.length, 0);
 });
 

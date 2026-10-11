@@ -23,6 +23,8 @@
 #include "ped-hold.h"
 #include "ped-metadata.h"
 #include "microphone.h"
+#include "world-context.h"
+#include "world-wire.h"
 #include "d3d-overlay.h"
 
 #pragma comment(lib, "winhttp.lib")
@@ -94,6 +96,9 @@ struct OverlayData {
     unsigned long    subtitleGeneration = 0;
     uint64_t         subtitleFrame = 0;
     bool             audioPlaying = false;
+    NpcWorld::Snapshot world;
+    NpcInteraction::Ped worldPlayer;
+    uint64_t worldCapturedAt = 0;
 };
 
 // ============================================================================
@@ -129,6 +134,10 @@ std::atomic<unsigned long> g_loggedPersonaGeneration{0};
 std::atomic<float> g_nearbyFemaleDistance{-1.0f};
 std::atomic<float> g_nearbyMaleDistance{-1.0f};
 NpcPedMetadata::Table g_modelGender{};
+NpcWorld::Reader g_worldReader;
+bool g_installed2014 = false;
+bool g_worldReady = false;
+DWORD g_gameHeaderImageBase = 0;
 NpcMicrophone::Recorder g_microphone;
 unsigned long g_recordGeneration = 0;
 DWORD g_recordDownTime = 0;
@@ -208,6 +217,7 @@ bool DetectGameLayout() {
     IMAGE_NT_HEADERS nt{};
     if (!ReadMemorySafe(reinterpret_cast<const BYTE*>(module) + dos.e_lfanew, &nt, sizeof(nt)) ||
         nt.Signature != IMAGE_NT_SIGNATURE || nt.FileHeader.Machine != IMAGE_FILE_MACHINE_I386) return false;
+    g_gameHeaderImageBase = nt.OptionalHeader.ImageBase;
     const DWORD entry = nt.OptionalHeader.AddressOfEntryPoint;
     if (entry == 0x424570 || entry == 0x42457C) {
         if (runtimeBase != 0x400000) return false;
@@ -232,6 +242,7 @@ bool DetectGameLayout() {
     g_playerPedAddress = NpcGameLayout::Resolve(runtimeBase, 0xC100D0);
     g_pedPoolAddress = NpcGameLayout::Resolve(runtimeBase, 0xC018A8);
     g_standstillProcessAddress = standstill;
+    g_installed2014 = true;
     return true;
 }
 
@@ -258,14 +269,29 @@ void WriteLog(const wchar_t* msg) {
     CloseHandle(f);
 }
 
-bool LoadModelGenderMetadata() {
+std::wstring GameDirectory() {
     wchar_t modulePath[MAX_PATH]{};
     const DWORD length = GetModuleFileNameW(nullptr, modulePath, MAX_PATH);
-    if (!length || length >= MAX_PATH) return false;
+    if (!length || length >= MAX_PATH) return {};
     std::wstring path(modulePath, length);
     const auto separator = path.find_last_of(L"\\");
-    if (separator == std::wstring::npos) return false;
+    if (separator == std::wstring::npos) return {};
     path.resize(separator);
+    return path;
+}
+
+uint64_t UnixMilliseconds() {
+    FILETIME time{};
+    GetSystemTimeAsFileTime(&time);
+    ULARGE_INTEGER value{};
+    value.LowPart = time.dwLowDateTime;
+    value.HighPart = time.dwHighDateTime;
+    return value.QuadPart / 10000ULL - 11644473600000ULL;
+}
+
+bool LoadModelGenderMetadata() {
+    std::wstring path = GameDirectory();
+    if (path.empty()) return false;
     path += L"\\data\\peds.ide";
     HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
         nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -354,6 +380,22 @@ bool ReadPed(uintptr_t address, NpcInteraction::Ped& ped) {
     return std::isfinite(ped.x) && std::isfinite(ped.y) && std::isfinite(ped.z) &&
         std::isfinite(ped.health) && ped.x > -4000 && ped.x < 4000 && ped.y > -4000 && ped.y < 4000 &&
         ped.z > -200 && ped.z < 1200;
+}
+
+void CaptureWorldContext() {
+    DWORD address = 0;
+    NpcInteraction::Ped player;
+    NpcWorld::Snapshot world;
+    uint64_t capturedAt = 0;
+    if (g_gameLayoutSupported.load() &&
+        ReadMemorySafe(reinterpret_cast<const void*>(g_playerPedAddress), &address, sizeof(address)) && ReadPed(address, player)) {
+        world = g_worldReader.Read(player.x, player.y, player.z, player.area);
+        if (world.available) capturedAt = UnixMilliseconds();
+    }
+    std::lock_guard<std::mutex> lock(g_data.mtx);
+    g_data.world = std::move(world);
+    g_data.worldPlayer = player;
+    g_data.worldCapturedAt = capturedAt;
 }
 
 bool IsInsideGameImage(DWORD address) {
@@ -627,19 +669,25 @@ bool DownloadAudio(const std::string& audioUrlPath, unsigned long generation) {
 // ============================================================================
 
 bool BackendSelect(unsigned int pedHandle, unsigned long generation) {
-    NpcInteraction::Ped pedestrian;
+    NpcInteraction::Ped pedestrian, player;
+    NpcWorld::Snapshot world;
+    uint64_t worldCapturedAt = 0;
     {
         std::lock_guard<std::mutex> lock(g_data.mtx);
         if (generation != g_conversationGeneration.load() || !g_data.selectedPed.address) return false;
         pedestrian = g_data.selectedPed;
+        player = g_data.worldPlayer;
+        world = g_data.world;
+        worldCapturedAt = g_data.worldCapturedAt;
     }
     LoadBridgeToken();
+    const auto worldJson = NpcWorldWire::Serialize(world, player, worldCapturedAt, UnixMilliseconds(), EscapeJsonString);
     const std::string body = "{\"gameSessionId\":\"gta-" + std::to_string(GetCurrentProcessId()) +
         "\",\"sceneGeneration\":" + std::to_string(pedHandle) +
         ",\"pedestrian\":{\"modelId\":" + std::to_string(pedestrian.modelId) +
         ",\"pedType\":" + std::to_string(pedestrian.pedType) +
         ",\"gender\":\"" + NpcInteraction::Gender(pedestrian) +
-        "\",\"modelGender\":\"" + NpcInteraction::ModelGender(pedestrian) + "\"}}";
+        "\",\"modelGender\":\"" + NpcInteraction::ModelGender(pedestrian) + "\"},\"worldContext\":" + worldJson + "}";
     const auto response = HttpRequest(L"POST", L"/api/select", body, L"application/json");
     if (!response.ok()) return false;
     const auto name = Utf8ToWide(ExtractJsonString(response.body, "displayName"));
@@ -1153,7 +1201,7 @@ void RenderOverlay(int w, int h) {
     float pad = 16.f;
 
     UiState currentState;
-    std::wstring subtitle, inputText, npcName, statusText, errorText, recognizedText, targetGender;
+    std::wstring subtitle, inputText, npcName, statusText, errorText, recognizedText, targetGender, worldLabel;
     int cursorBlink;
     {
         std::lock_guard lk(g_data.mtx);
@@ -1165,6 +1213,19 @@ void RenderOverlay(int w, int h) {
         errorText    = g_data.errorText;
         recognizedText = g_data.recognizedText;
         targetGender = Utf8ToWide(NpcInteraction::Gender(g_data.nearbyPed));
+        if (g_data.world.available && g_data.worldCapturedAt && UnixMilliseconds() - g_data.worldCapturedAt <= 10000) {
+            worldLabel = Utf8ToWide(g_data.world.location);
+            if (g_data.world.hour >= 0 && g_data.world.minute >= 0) {
+                wchar_t clock[16]{};
+                swprintf_s(clock, L"%02d:%02d", g_data.world.hour, g_data.world.minute);
+                if (!worldLabel.empty()) worldLabel += L"  |  ";
+                worldLabel += clock;
+            }
+            if (!g_data.world.weather.empty()) {
+                if (!worldLabel.empty()) worldLabel += L"  |  ";
+                worldLabel += Utf8ToWide(g_data.world.weather);
+            }
+        }
         cursorBlink  = g_data.cursorBlink;
         renderGeneration = g_data.subtitleGeneration;
         renderingSubtitle = currentState == UiState::SUBTITLE && !subtitle.empty();
@@ -1285,6 +1346,12 @@ void RenderOverlay(int w, int h) {
         });
     }
 
+    if (!worldLabel.empty()) {
+        curY -= 30.f;
+        boxes.push_back({Gdiplus::RectF(panelX, curY, panelW, 26.f),
+            Gdiplus::Color(170, 12, 24, 20), Gdiplus::Color(0, 0, 0, 0),
+            worldLabel, Gdiplus::Color(230, 165, 215, 185), 12.f, 1});
+    }
     // -- Render all boxes --
     for (auto& box : boxes) {
         if (box.bgColor.GetA() > 0 || box.borderColor.GetA() > 0)
@@ -1398,7 +1465,16 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         if (wParam == TIMER_ID) {
             if (!g_gameWnd || !IsWindow(g_gameWnd)) {
                 g_gameWnd = FindGameWindow();
-                if (g_gameWnd) WriteLog(L"Visible game window located.");
+                if (g_gameWnd) {
+                    WriteLog(L"Visible game window located.");
+                    if (!g_worldReady && g_gameLayoutSupported.load()) {
+                        g_worldReady = g_worldReader.Initialize(reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr)),
+                            g_installed2014, GameDirectory());
+                        WriteLog(g_worldReady ? L"World sampler validated after game-window startup."
+                            : L"World sampler retry rejected; unsupported facts remain unavailable.");
+                        WriteLog(Utf8ToWide(g_worldReader.InitializationDiagnostic()).c_str());
+                    }
+                }
             }
             static bool renderingLogged = false;
             if (!renderingLogged && NpcD3D::IsRendering()) {
@@ -1440,6 +1516,7 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             bool leaveConversation = false;
             if (lastProximityCheck == 0 || now - lastProximityCheck >= 100 || !focused) {
                 lastProximityCheck = now;
+                CaptureWorldContext();
                 NpcInteraction::Ped selected, nearest;
                 bool active = false, selectedInRange = false;
                 {
@@ -1538,6 +1615,15 @@ DWORD WINAPI OverlayThreadProc(LPVOID) {
         return 1;
     }
     g_gameLayoutSupported.store(DetectGameLayout());
+    g_worldReady = g_gameLayoutSupported.load() && g_worldReader.Initialize(
+        reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr)), g_installed2014, GameDirectory());
+    WriteLog(g_worldReady ? L"Verified game clock/weather/zone sampler initialized (real game values, not PC time)."
+        : L"World sampler unavailable for this executable; dialogue will not invent live game facts.");
+    if (!g_worldReady) WriteLog(Utf8ToWide(g_worldReader.InitializationDiagnostic()).c_str());
+    wchar_t bases[128]{};
+    swprintf_s(bases, L"World layout diagnostic: moduleBase=0x%08X, headerImageBase=0x%08X.",
+        static_cast<unsigned>(reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr))), static_cast<unsigned>(g_gameHeaderImageBase));
+    WriteLog(bases);
     NpcD3D::SetGameFrameCallback(OnGameFrame);
     WriteLog(LoadModelGenderMetadata()
         ? L"Installed model/animation gender metadata loaded; it overrides generic runtime ped types."

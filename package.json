@@ -9,8 +9,8 @@
   "scripts": {
     "start": "node --env-file-if-exists=.env backend/src/server.js",
     "doctor": "node --env-file-if-exists=.env backend/src/doctor.js",
-    "check": "node --check backend/src/config.js && node --check backend/src/configured-voices.js && node --check backend/src/domain.js && node --check backend/src/npc-controller.js && node --check backend/src/npc-registry.js && node --check backend/src/pedestrian-profiles.js && node --check backend/src/session-manager.js && node --check backend/src/providers/live-providers.js && node --check backend/src/memory/sqlite-memory-store.js && node --check backend/src/server.js && node --check backend/src/doctor.js && node --check companion/app.js && node --check admin/app.js",
-    "test": "node --test backend/test/*.test.js",
+    "check": "node --check backend/src/config.js && node --check backend/src/configured-voices.js && node --check backend/src/domain.js && node --check backend/src/npc-controller.js && node --check backend/src/npc-registry.js && node --check backend/src/pedestrian-profiles.js && node --check backend/src/session-manager.js && node --check backend/src/world-context.js && node --check backend/src/providers/live-providers.js && node --check backend/src/memory/sqlite-memory-store.js && node --check backend/src/server.js && node --check backend/src/doctor.js && node --check companion/app.js && node --check admin/world-context-view.js && node --check admin/app.js",
+    "test": "node --test backend/test/*.test.js admin/test/*.test.js",
     "build:native": "powershell -NoProfile -File .\\native\\build.ps1",
     "test:native": "powershell -NoProfile -File .\\native\\test-native.ps1",
     "install:native": "powershell -NoProfile -File .\\native\\install.ps1"

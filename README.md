@@ -4,6 +4,14 @@ A local Windows prototype for Malayalam conversations with original NPC personal
 
 **In-game implementation:** the x86 ASI draws the popup and Malayalam subtitles inside Direct3D9. Approach an eligible pedestrian and press **F6 / Enter**: that NPC stands and faces CJ while its original personality/name and approved voice are selected. Type + Enter, or **hold R, wait for Recording, speak, then release R**. Replies have matching subtitles/speech; recognized microphone text is displayed. The user confirmed the corrected female voice and live hold-R speech-to-text/reply path. Broader edge-case/mod compatibility remains limited.
 
+## Submission snapshot
+
+- Repository: https://github.com/Devadathan69/DevDayHack
+- Demo: local Windows GTA installation plus localhost companion/dashboard; there is no public hosted game demo.
+- Final implementation revision, participant credits and submission checklist: [SUBMISSION.md](SUBMISSION.md).
+- Verified locally: typed/native hold-R interaction, corrected gender voices, repeated spoken subtitles, and real location/game-time/weather context. Automated release checks are recorded in the changelog.
+- Run only one backend instance. Keep keys/approved voice IDs in ignored `.env`; never export or screenshot credentials.
+
 ## Start the companion
 
 Prerequisites: Windows, Node.js 22.18 or newer, a microphone and speakers, provider API access, and a supported browser.
@@ -24,7 +32,17 @@ Open **http://127.0.0.1:4177** in the browser and allow microphone access. The s
 
 ## NPC admin dashboard
 
-With the companion server running, open **http://127.0.0.1:4177/admin**. The dashboard loads and saves NPC profiles through the authenticated localhost server, including local drafts and published-version history. Its roster supports create, duplicate, import, export, and delete; behavior presets and the scenario playground remain local admin tools. Publish a profile to activate it for companion sessions. Published settings on the protected Manu profile are inherited by generated GTA pedestrian personas for dialogue and behavior; GTA continues using the server's gender-aware configured voice pools. The voice selector exposes only configured voices, never provider account IDs. The voice preview generates a short provider-backed sample, while mood and speed are sent with live speech. Profile data is stored outside the repository in `npc-profiles.json` beside the local SQLite database.
+With the companion server running, open **http://127.0.0.1:4177/admin**. The dashboard loads and saves NPC profiles through the authenticated localhost server, including local drafts and published-version history. Its roster supports create, duplicate, import, export, and delete; behavior presets and the scenario playground remain local admin tools. Publish a profile to activate it for companion sessions. Published settings on the protected Manu profile are inherited by generated GTA pedestrian personas for dialogue and behavior; GTA continues using the server's gender-aware configured voice pools. The voice selector exposes only configured voices, never provider account IDs. Create/delete confirmations use in-page dialogs compatible with the VS Code browser; saving and publishing distinguish local pending work from settings confirmed by the server. The voice preview generates a short provider-backed sample, while mood and speed are sent with live speech. Profile data is stored outside the repository in `npc-profiles.json` beside the local SQLite database.
+
+### World-aware dialogue
+
+The installed 2014 game reader samples **actual zone/location, game clock and measured weather** through verified, ASLR-aware game-memory references. Zone codes are resolved from local `info.zon` / `map.zon` and supported English GXT labels (for example, GAN1 → Ganton); no game assets are bundled. The HUD shows current observed context when approaching/talking to a pedestrian. NPCs receive fresh scoped facts before typed and voice turns, not the PC clock or invented scenery.
+
+The dashboard's **GAME WORLD** card shows the latest verified snapshot and its age. Facts expire after 10 seconds, browser playground simulations cannot author them, and published **Scene aware** settings control whether dialogue may use them. Actual rain is separate from the engine's next weather target; transitioning weather is not claimed as already completed. Unverified executables/interiors/signals remain explicitly unavailable. Existing classic interaction support does not imply verified world sampling on every executable.
+
+### Startup troubleshooting
+
+If port 4177 is occupied, use the existing server or stop only the known project instance before starting again. Startup now exits with a useful message instead of an uncaught stack and does not replace another running server's bridge token. Restart once after changing `.env`; do not open a second backend for the same game.
 
 Starting the server also creates a random bridge token under `%LOCALAPPDATA%\MalayalamNpcDemo\bridge-token`; the ASI reads it locally and uses it only for approved conversation routes. The token is not printed or served to the browser. Start the backend before launching the game; the ASI refreshes the token if the backend restarts.
 
@@ -75,7 +93,7 @@ npm run test:native
 npm run build:native
 ```
 
-`npm test` exercises stubbed provider requests, SQLite persistence, and authenticated native HTTP routes, including cancellation and pedestrian scope changes. It does not call paid APIs. `npm run test:native` compiles/runs x86 proximity, gender metadata, identity/timer/signature, reversible NPC hold, and synthetic microphone/WAV/cancellation checks without opening a microphone. To verify the installed 2014 executable without modifying it:
+`npm test` exercises stubbed provider requests, SQLite persistence, and authenticated native HTTP routes, including cancellation and pedestrian scope changes. It does not call paid APIs. `npm run test:native` compiles/runs x86 proximity, gender/identity, hold, synthetic microphone/WAV, world-zone/GXT parsing, six world fingerprints, rewritten runtime-header/ASLR and snapshot serialization checks without opening a microphone. Explicit private fixtures are not evidence of live sampling; live behavior was additionally confirmed in game. To verify the installed 2014 executable without modifying it:
 
 ```powershell
 npm run test:native -- -GameExecutable '..\Grand Theft Auto San Andreas\gta-sa.exe'
@@ -93,10 +111,10 @@ Native checks/builds require Visual Studio's Desktop development with C++ worklo
 
 ## Project status
 
-- **Implemented:** in-frame nearby popup; reversible NPC stand/facing; stable distinct personas and approved gender voice pools; typed or native hold-R STT input; spoken subtitles; cancellation/memory; unlimited application turns by default.
-- **Automated verification:** `npm test` passed 70 offline backend/config/persona/voice/budget/companion tests. Native hold/gender/installed-task-signature and synthetic microphone tests passed; GPU hosts passed 63/64 checks and five distinct production audio workers passed. No paid calls occur in these suites.
+- **Implemented:** in-frame interaction/standing NPCs; distinct personas/gender voice pools; typed or hold-R STT; spoken subtitles; scoped memory/cancellation; world-aware location/time/weather dialogue; localhost profile dashboard; unlimited application turns by default.
+- **Automated release verification:** `npm test` passed **95 offline tests** covering dialogue/world scope, voice/PTT, dashboard formatting, memory, unlimited budgets and startup collisions. Native hold/gender/microphone/world-reader/PE/GXT/wire tests passed, including the installed file and loader-rewritten runtime image base. GPU hosts passed **63/64 checks**. Earlier five-worker audio regression checks also passed; no paid calls occur in these suites.
 - **Live verification:** the initial ElevenLabs HTTP 401 was resolved after the user corrected local credentials. One explicitly authorized speech-only check returned valid MP3 audio; Windows MCI playback succeeded. Credentials were never printed or committed.
-- **Verified in game (user-confirmed):** nearby interaction and repeat speech; corrected female voice after the stock-model diagnosis; and holding R, speaking, releasing, seeing recognized text and receiving a spoken reply. The final 367,616-byte ASI is installed with a matching build hash; logs confirm model metadata, task bindings, actual game frames and game-thread NPC holding. Free live bridge checks confirmed all four male names, stable reselection and uncapped status.
-- **Remaining coverage:** distance/vehicle/scene eligibility and cancellation have native/backend regression coverage, but a complete gameplay edge-case walkthrough, pronunciation assessment, mouse/gamepad behavior and other-mod compatibility are not verified. This is a working prototype, not a guarantee of perfection on every executable or mod combination.
+- **Verified in game (user-confirmed):** nearby interaction and repeat speech; corrected female voice after the stock-model diagnosis; and holding R, speaking, releasing, seeing recognized text and receiving a spoken reply. The final **448,512-byte ASI** is installed with a matching build hash. Live logs confirm the world reader, model/task bindings, game frames and NPC holding; module/header bases both equal `0xB00000`, while all six world code fingerprints remain enforced. The user additionally confirmed real location/time/weather and world-aware interaction after the runtime-header fix. Free live bridge checks confirmed all four male names, stable reselection and uncapped status.
+- **Limitations:** custom skins may use neutral fallback; world sampling is verified only for the installed 2014 layout; interiors/missing observations are unavailable rather than guessed; process/scene/pool identity is not stable across game restarts. Mouse/gamepad suppression, every gameplay edge, all voice pronunciation and other-mod compatibility are not comprehensively verified. Favor + Trust was deferred and is not part of the submitted demo. This is a verified local prototype, not universal compatibility or a hosted deployment.
 
 See [plan.md](plan.md), [game integration](docs/game-integration.md), [CHANGELOG.md](CHANGELOG.md), and [AI_USAGE.md](AI_USAGE.md). Submission details in [SUBMISSION.md](SUBMISSION.md) still need participant and repository information.

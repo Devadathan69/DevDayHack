@@ -10,6 +10,7 @@
     <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/admin/styles.css" />
     <link rel="stylesheet" href="/admin/extras.css" />
+    <script src="/admin/world-context-view.js" defer></script>
     <script src="/admin/app.js" defer></script>
   </head>
   <body>
@@ -28,7 +29,7 @@
           <a class="nav-item" href="#versions"><span class="nav-icon">◷</span>Versions</a>
         </nav>
         <div class="sidebar-bottom">
-          <div class="storage-card"><div class="storage-top"><span class="online-dot"></span>LOCAL DRAFT</div><p>Your changes are saved in this browser.</p><div class="storage-bar"><span></span></div><small>Browser storage · private</small></div>
+          <div class="storage-card"><div class="storage-top"><span class="online-dot"></span>LOCAL DRAFT</div><p>Private drafts use the local server when connected, otherwise this browser.</p><div class="storage-bar"><span></span></div><small>Browser storage · private</small></div>
           <button class="nav-item help-button" type="button"><span class="nav-icon">?</span>Help & feedback</button>
           <div class="user-chip"><div class="user-avatar">S</div><span><strong>Studio admin</strong><small>Project owner</small></span><span class="more">···</span></div>
         </div>
@@ -53,6 +54,12 @@
             <div class="profile-identity"><div class="identity-line"><h2 id="profileName">Manu</h2><span class="tag tag-green" id="runtimeTag"><i></i> LOCAL PROFILE</span><span class="tag tag-muted">MALAYALAM NPC</span></div><p id="profileDescription">A friendly local with a quick wit and a soft spot for snack recommendations.</p><div class="profile-meta"><span><b>●</b> <span id="profileId">demo-npc-001</span></span><span id="updatedAt">◷ Draft saved locally</span><span>♙ Private memory</span></div></div>
             <div class="profile-stat"><span class="stat-label">PROFILE COMPLETENESS</span><div class="stat-value"><strong id="completeness">84%</strong><span class="mini-progress"><i id="completenessBar"></i></span></div><small>Looking good</small></div>
             <div class="profile-stat response-stat"><span class="stat-label">RESPONSE STYLE</span><div class="response-chip"><span>≈</span> <span id="responseStyle">Balanced</span></div><small>From your dialogue settings</small></div>
+          </section>
+
+          <section class="world-context-card" aria-label="Verified game context" aria-live="polite">
+            <div class="world-context-heading"><strong>GAME WORLD</strong><span id="worldContextState">Waiting for native game</span></div>
+            <div class="world-context-values"><div><small>LOCATION</small><span id="worldContextLocation">Unavailable</span></div><div><small>GAME TIME</small><span id="worldContextTime">Unavailable</span></div><div><small>WEATHER</small><span id="worldContextWeather">Unavailable</span></div></div>
+            <p id="worldContextNote">Only verified game observations inform live NPC dialogue; the playground below is a local simulation.</p>
           </section>
 
           <div class="editor-layout">
@@ -117,14 +124,22 @@
                 <div class="preview-controls"><button id="refreshPreview" type="button">↻ <span>Simulate scenario</span></button><span>LOCAL SIMULATION</span></div>
               </section>
               <section class="insight-card"><div class="insight-orb">✳</div><div><div class="section-kicker">PERSONALITY SNAPSHOT</div><h4 id="snapshotTitle">Warm with a witty edge</h4><p id="snapshotDescription">A welcoming conversationalist who likes to ask questions and keep things light.</p></div></section>
-              <div class="privacy-caption"><span>▣</span><span>Draft stays in this browser until you export it.<br /><a href="#behavior">Review memory settings →</a></span></div>
-              <section class="versions-card" id="versions"><div class="versions-heading"><div><div class="section-kicker">PROFILE HISTORY</div><h4>Published versions</h4></div><span class="version-count" id="versionCount">0</span></div><div id="versionList" class="version-list"><p class="empty-versions">Publish this profile to create its first version.</p></div><p class="version-footnote">Publishing stores a local snapshot. It does not activate the profile in-game.</p></section>
+              <div class="privacy-caption"><span>▣</span><span>Private drafts are saved locally; publish to activate supported runtime settings.<br /><a href="#behavior">Review memory settings →</a></span></div>
+              <section class="versions-card" id="versions"><div class="versions-heading"><div><div class="section-kicker">PROFILE HISTORY</div><h4>Published versions</h4></div><span class="version-count" id="versionCount">0</span></div><div id="versionList" class="version-list"><p class="empty-versions">Publish this profile to create its first version.</p></div><p class="version-footnote">Publishing activates companion profiles; protected Manu settings also shape generated GTA personalities. GTA voice pools remain server controlled.</p></section>
             </aside>
           </div>
-          <footer class="page-footer"><span>NPC STUDIO <i>·</i> PROFILE EDITOR</span><span>Changes apply to exported profile <b>↗</b></span></footer>
+          <footer class="page-footer"><span>NPC STUDIO <i>·</i> PROFILE EDITOR</span><span>Publish to apply supported live settings <b>↗</b></span></footer>
         </div>
       </main>
     </div>
+    <dialog id="rosterDialog" class="roster-dialog" aria-labelledby="rosterDialogTitle">
+      <form id="rosterDialogForm">
+        <h3 id="rosterDialogTitle">Create NPC</h3>
+        <p id="rosterDialogMessage"></p>
+        <label id="rosterDialogNameLabel" class="field"><span>CHARACTER NAME</span><input id="rosterDialogName" maxlength="80" autocomplete="off" required /></label>
+        <div class="roster-dialog-actions"><button id="rosterDialogCancel" class="button button-quiet" type="button">Cancel</button><button id="rosterDialogSubmit" class="button button-primary" type="submit">Create NPC</button></div>
+      </form>
+    </dialog>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </body>
 </html>

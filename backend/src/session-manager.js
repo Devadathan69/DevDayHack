@@ -1,14 +1,19 @@
 import { randomUUID } from "node:crypto";
 import { assertNotAborted, isAbortError, validateConversationKey, validateGameScope } from "./domain.js";
+import { describeWorldContext, validateWorldSnapshot, worldContextForDialogue } from "./world-context.js";
 
 export class SessionManager {
   #selection = null;
   #active = null;
+  #worldSnapshot = null;
+  #lastWorldSnapshot = null;
+  #lastWorldScope = null;
 
-  constructor({ registry, memory, events = () => {} }) {
+  constructor({ registry, memory, events = () => {}, clock = Date.now }) {
     this.registry = registry;
     this.memory = memory;
     this.events = events;
+    this.clock = clock;
     this.state = "IDLE";
   }
 
@@ -30,15 +35,31 @@ export class SessionManager {
     return { worldId, playerId, npcId };
   }
 
-  selectNpc({ npcId, worldId, playerId, gameSessionId, sceneGeneration }) {
+  get worldContext() {
+    return describeWorldContext(this.#worldSnapshot, this.#selection, this.clock());
+  }
+
+  get lastWorldContext() {
+    return describeWorldContext(this.#lastWorldSnapshot, this.#lastWorldScope, this.clock());
+  }
+
+  selectNpc({ npcId, worldId, playerId, gameSessionId, sceneGeneration, worldContext }) {
     const profile = this.registry.getProfile(npcId);
     if (!profile) throw new Error(`NPC '${npcId}' is not configured.`);
     const key = validateConversationKey({ worldId, playerId, npcId });
     const selection = { ...key, ...validateGameScope({ gameSessionId, sceneGeneration }) };
-    if (this.#selection && Object.keys(selection).every((field) => this.#selection[field] === selection[field])) return profile;
-    this.cancel("Selected NPC scope changed; the previous turn was discarded.");
-    this.#selection = selection;
-    this.#setState("SELECTED");
+    const snapshot = validateWorldSnapshot(worldContext, this.clock());
+    const sameSelection = this.#selection && Object.keys(selection).every((field) => this.#selection[field] === selection[field]);
+    if (!sameSelection) {
+      this.cancel("Selected NPC scope changed; the previous turn was discarded.");
+      this.#selection = selection;
+    }
+    this.#worldSnapshot = snapshot;
+    if (snapshot) {
+      this.#lastWorldSnapshot = snapshot;
+      this.#lastWorldScope = selection;
+    }
+    if (!sameSelection) this.#setState("SELECTED");
     return profile;
   }
 
@@ -59,7 +80,7 @@ export class SessionManager {
     active.promise = this.registry.get(selection.npcId)
       .handleUtterance(turnContext, audioInput, abortController.signal, ({ state }) => {
         if (this.#active === active) this.#setState(state, turnContext);
-      })
+      }, () => this.#selection === selection ? worldContextForDialogue(this.worldContext, this.clock()) : describeWorldContext(null, selection, this.clock()))
       .then((result) => {
         assertNotAborted(abortController.signal);
         if (this.#active === active) {
@@ -104,6 +125,7 @@ export class SessionManager {
   invalidateScene() {
     this.cancel("Scene changed; the active turn was discarded.");
     this.#selection = null;
+    this.#worldSnapshot = null;
     this.#setState("IDLE");
   }
 

@@ -36,6 +36,35 @@ let companionReady = false;
 let gameProfileId = defaults.id;
 let voiceOptions = [{ voiceRef: defaults.voiceRef, label: "Server default voice" }];
 
+function renderWorld(snapshot, disconnected = false) {
+  const view = globalThis.NpcWorldContextView.format(snapshot);
+  $("worldContextState").textContent = disconnected ? "Backend disconnected" : view.state;
+  $("worldContextState").className = disconnected ? "is-stale" : view.stateClass;
+  $("worldContextLocation").textContent = view.location;
+  $("worldContextTime").textContent = view.time;
+  $("worldContextWeather").textContent = view.weather;
+  $("worldContextNote").textContent = disconnected ? "Start the local server; no current world facts are available." : view.note;
+}
+
+let worldRequestPending = false;
+async function refreshWorld() {
+  if (location.protocol === "file:" || worldRequestPending) return;
+  worldRequestPending = true;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 2500);
+  try {
+    const response = await fetch("/api/status", { cache: "no-store", signal: controller.signal });
+    if (!response.ok) throw new Error("Status unavailable");
+    const status = await response.json();
+    renderWorld(status.worldContext);
+  } catch {
+    renderWorld(null, true);
+  } finally {
+    clearTimeout(timeout);
+    worldRequestPending = false;
+  }
+}
+
 function deepCopy(value) { return JSON.parse(JSON.stringify(value)); }
 function newProfile(data = defaults, versions = [], activeVersion = null) { return { data: deepCopy(data), versions: deepCopy(versions), activeVersion }; }
 function current() { return profiles.find((item) => item.data.id === selectedId) ?? profiles[0]; }
@@ -131,8 +160,11 @@ function render() {
   const activeVersion = current().activeVersion;
   const changedBuiltIn = profile.id === gameProfileId && !activeVersion && JSON.stringify(profileDataOnly(profile)) !== JSON.stringify(profileDataOnly(defaults));
   if (apiConnected && profile.id === gameProfileId) runtimeTag.textContent = activeVersion ? (published ? `GAME · V${activeVersion} ACTIVE` : `GAME · V${activeVersion} ACTIVE · DRAFT`) : changedBuiltIn ? "GAME PROFILE · DRAFT" : "GAME PROFILE · BUILT-IN";
-  else if (apiConnected) runtimeTag.textContent = companionReady ? (activeVersion ? (published ? `COMPANION · V${activeVersion} ACTIVE` : `COMPANION · V${activeVersion} ACTIVE · DRAFT`) : "COMPANION READY") : "PUBLISH TO ACTIVATE";
+  else if (apiConnected) runtimeTag.textContent = activeVersion && companionReady
+    ? (published ? `COMPANION · V${activeVersion} ACTIVE` : `COMPANION · V${activeVersion} ACTIVE · DRAFT`) : "PUBLISH TO ACTIVATE";
   else runtimeTag.textContent = "LOCAL PROFILE";
+  if (apiSavePending) runtimeTag.textContent = "SAVING · NOT YET APPLIED";
+  else if (apiConnectionError) runtimeTag.textContent = "LOCAL DRAFT · SERVER SAVE UNCONFIRMED";
   $("saveStatus").textContent = apiConnected
     ? (apiSavePending ? "Saving to local server…" : published ? "Published on local server" : "Saved to local server")
     : apiConnectionError ? "Local draft · backend unavailable"
@@ -316,17 +348,48 @@ document.querySelectorAll(".editor-column input:not([disabled]), .editor-column 
   control.addEventListener("input", persist); control.addEventListener("change", persist);
 });
 $("npcSelect").addEventListener("change", () => { selectedId = $("npcSelect").value; saveAll(); hydrate(current().data); $("behaviorPreset").value = "custom"; });
-$("newNpcButton").addEventListener("click", () => {
-  const name = window.prompt("Name this NPC:", "New NPC"); if (!name?.trim()) return;
-  const item = makeProfile(name.trim()); profiles.push(item); selectedId = item.data.id; saveAll(); hydrate(item.data); showToast("NPC profile created");
+function openRosterDialog(action) {
+  const dialog = $("rosterDialog");
+  dialog.dataset.action = action;
+  dialog.dataset.profileId = current().data.id;
+  const creating = action === "create";
+  $("rosterDialogTitle").textContent = creating ? "Create NPC" : "Delete NPC";
+  $("rosterDialogMessage").textContent = creating ? "Create a new local profile; publishing activates its supported runtime settings." : `Delete ${current().data.displayName} and its version history? This cannot be undone.`;
+  $("rosterDialogNameLabel").hidden = !creating;
+  $("rosterDialogName").required = creating;
+  $("rosterDialogName").value = creating ? "New NPC" : "";
+  $("rosterDialogSubmit").textContent = creating ? "Create NPC" : "Delete NPC";
+  dialog.showModal();
+  if (creating) { $("rosterDialogName").focus(); $("rosterDialogName").select(); }
+}
+$("rosterDialogCancel").addEventListener("click", () => $("rosterDialog").close());
+$("rosterDialogForm").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const dialog = $("rosterDialog");
+  if (dialog.dataset.action === "create") {
+    const name = $("rosterDialogName").value.trim();
+    if (!name) return;
+    const item = makeProfile(name); profiles.push(item); selectedId = item.data.id;
+    saveAll(); hydrate(item.data); showToast("NPC profile created");
+  } else {
+    const id = dialog.dataset.profileId;
+    if (id === defaults.id || profiles.length < 2) return;
+    const entry = profiles.find((item) => item.data.id === id);
+    if (!entry) return;
+    profiles = profiles.filter((item) => item.data.id !== id);
+    selectedId = profiles[0].data.id; saveAll(); hydrate(current().data);
+    showToast(`${entry.data.displayName} deleted`);
+  }
+  dialog.close();
 });
+$("newNpcButton").addEventListener("click", () => openRosterDialog("create"));
 $("duplicateNpcButton").addEventListener("click", () => {
   const item = makeProfile(`${current().data.displayName} copy`, readForm()); profiles.push(item); selectedId = item.data.id; saveAll(); hydrate(item.data); showToast("NPC profile duplicated");
 });
 $("deleteNpcButton").addEventListener("click", () => {
   if (profiles.length < 2) { showToast("Keep at least one NPC profile"); return; }
-  const name = current().data.displayName; if (!window.confirm(`Delete ${name} and its local version history?`)) return;
-  profiles = profiles.filter((item) => item.data.id !== selectedId); selectedId = profiles[0].data.id; saveAll(); hydrate(current().data); showToast(`${name} deleted`);
+  if (current().data.id === defaults.id) { showToast("The GTA bridge profile is protected."); return; }
+  openRosterDialog("delete");
 });
 $("exportButton").addEventListener("click", () => downloadProfile());
 $("publishButton").addEventListener("click", publish);
@@ -348,3 +411,6 @@ $("importInput").addEventListener("change", async (event) => {
 });
 
 init();
+renderWorld(null);
+refreshWorld();
+setInterval(() => { if (!document.hidden) refreshWorld(); }, 2000);

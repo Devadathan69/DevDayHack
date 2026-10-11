@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { ValidationError, validateGameScope, validateProfile } from "./domain.js";
 import { selectNpcVoice } from "./configured-voices.js";
+import { validateWorldSnapshot } from "./world-context.js";
 
 const givenNames = ["Aven", "Tavi", "Neri", "Lumi", "Ren", "Sora", "Kavi", "Arin", "Devi", "Mika", "Remi", "Ira", "Ellis", "Robin", "Sage", "Rumi"];
 const familyNames = ["Vale", "Reed", "Brook", "Moss", "Stone", "Lane", "Grove", "Lake", "Fern", "Cove", "Wren", "Ash", "Hale", "Lark", "Pine", "Bell"];
@@ -39,14 +40,15 @@ export function validatePedestrianMetadata(value) {
   return Object.freeze({ ...value });
 }
 
-export function validateBridgeSelection(value) {
+export function validateBridgeSelection(value, now = Date.now()) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new ValidationError("NPC selection must be a JSON object.");
   }
-  if (Object.keys(value).some((field) => !["gameSessionId", "sceneGeneration", "pedestrian"].includes(field))) {
+  if (Object.keys(value).some((field) => !["gameSessionId", "sceneGeneration", "pedestrian", "worldContext"].includes(field))) {
     throw new ValidationError("NPC selection contains an unsupported field.");
   }
-  return { ...validateGameScope(value), pedestrian: validatePedestrianMetadata(value.pedestrian) };
+  return { ...validateGameScope(value), pedestrian: validatePedestrianMetadata(value.pedestrian),
+    worldContext: validateWorldSnapshot(value.worldContext, now) };
 }
 
 export function pedestrianGender(metadata) {
