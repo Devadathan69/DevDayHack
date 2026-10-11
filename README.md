@@ -7,7 +7,7 @@ A local Windows prototype for Malayalam conversations with original NPC personal
 ## Submission snapshot
 
 - Repository: https://github.com/Devadathan69/DevDayHack
-- Demo: local Windows GTA installation plus localhost companion/dashboard; there is no public hosted game demo.
+- Demo: [Watch or download the demo video](demo/demo.mp4) (329 MB, tracked with Git LFS); it shows the local Windows GTA installation and localhost companion/dashboard. There is no public hosted game demo.
 - Final implementation revision, participant credits and submission checklist: [SUBMISSION.md](SUBMISSION.md).
 - Verified locally: typed/native hold-R interaction, corrected gender voices, repeated spoken subtitles, and real location/game-time/weather context. Automated release checks are recorded in the changelog.
 - Run only one backend instance. Keep keys/approved voice IDs in ignored `.env`; never export or screenshot credentials.

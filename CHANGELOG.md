@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-11T08:55:00+05:30 — Add demo video to repository
+
+- Changed: Added the user-provided demo as `demo/demo.mp4`, tracked through Git LFS, and linked it from the README.
+- Why: Include the requested working-demo footage with the project submission.
+- Validation: Source and repository-copy SHA-256 hashes match; file size is 329,146,686 bytes and Git LFS tracking is configured. Push status is reported separately after the push.
+- Limitations: Video is a large Git LFS object; access depends on GitHub LFS availability and quota.
+
 ## 2026-10-11T08:54:02+05:30 ? Record final immersive follow-up revision
 
 - Documentation only: SUBMISSION.md now records pushed implementation d2a6ed8dd7d49cd5d8ef160340d10538beebddb8 and distinguishes its 105-test offline prompt/model verification from earlier live native/world demonstration. No later code is included in this metadata commit. Documentation links/whitespace checked; restart backend once for the updated behavior.
