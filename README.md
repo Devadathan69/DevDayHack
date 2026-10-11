@@ -1,6 +1,6 @@
 # Malayalam NPC Companion
 
-A local Windows prototype for Malayalam conversations with original NPC personalities. It provides a browser companion (Manu), an in-game native adapter, live OpenAI dialogue, ElevenLabs recognition/speech, and private SQLite memory.
+A local Windows prototype for Malayalam conversations with original, individually varied NPC personalities and playful, good-natured banter. Generated residents are prompted to use affectionate roasts sparingly and avoid unrelated date/time or weather chatter. It provides a browser companion (Manu), an in-game native adapter, live OpenAI dialogue, ElevenLabs recognition/speech, and private SQLite memory.
 
 **In-game implementation:** the x86 ASI draws the popup and Malayalam subtitles inside Direct3D9. Approach an eligible pedestrian and press **F6 / Enter**: that NPC stands and faces CJ while its original personality/name and approved voice are selected. Type + Enter, or **hold R, wait for Recording, speak, then release R**. Replies have matching subtitles/speech; recognized microphone text is displayed. The user confirmed the corrected female voice and live hold-R speech-to-text/reply path. Broader edge-case/mod compatibility remains limited.
 

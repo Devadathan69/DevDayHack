@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { validateWorldSnapshot, describeWorldContext, worldContextForDialogue,
+import { validateWorldSnapshot, describeWorldContext, worldContextForDialogue, worldContextInstructions,
   WORLD_CONTEXT_TTL_MS, WORLD_CONTEXT_FUTURE_TOLERANCE_MS } from "../src/world-context.js";
 import { NpcRegistry } from "../src/npc-registry.js";
 import { SessionManager } from "../src/session-manager.js";
@@ -13,6 +13,13 @@ const key = { ...scope, worldId: "test-world", playerId: "test-player", npcId: p
 const snapshot = { location: { name: "Ganton", zoneCode: "GANTON", position: { x: 2490, y: -1670, z: 13, area: 0 } },
   time: { hour: 23, minute: 45 }, weather: { id: 8, targetId: 1, condition: "rainy", rainIntensity: 0.4 }, capturedAt: now };
 const replyMl = "ഇപ്പോൾ ഗാന്റണിലാണ്.";
+
+test("scene instructions keep time and weather out of unrelated conversation", () => {
+  const instructions = worldContextInstructions();
+  assert.match(instructions, /Do not bring up the in-game date\/time or weather unless asked or clearly relevant/u);
+  assert.match(instructions, /never use them as a default opener or recurring filler/u);
+  assert.match(instructions, /do not repeat scene facts across turns/u);
+});
 
 function deferred() {
   let resolve;

@@ -135,6 +135,8 @@ test("residents have warm individual values and quirks without forcing canned bi
     { worldId: "personality-city", gameSessionId: "gta-personas", sceneGeneration: index * 256 + 1 }, { pedType: 4 }));
   assert.ok(new Set(profiles.map((profile) => profile.traits.value)).size > 1);
   assert.ok(new Set(profiles.map((profile) => profile.traits.quirk)).size > 1);
+  assert.ok(profiles.some(({ traits }) => /playful banter|gentle teasing|cheeky aside/iu.test(traits.speakingStyle)));
+  assert.ok(profiles.some(({ traits }) => /roast|teasing/iu.test(traits.quirk)));
   for (const profile of profiles) {
     assert.ok(profile.personality.length <= 500 && profile.originalBackstory.length <= 1000);
     assert.match(profile.originalBackstory, /not topics they bring into every answer/u);

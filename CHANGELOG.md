@@ -4,6 +4,14 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-11T10:28:12+05:30 — Add playful NPC banter and reduce unsolicited time callouts
+
+- Changed: Generated residents now have more witty speaking styles and optional affectionate roasts. Dialogue guidance keeps teasing kind and non-repetitive, and treats in-game time/weather as context rather than default small talk.
+- Why: Make NPCs funnier and less likely to steer unrelated conversations back to the clock.
+- Affected: Backend resident/world-context prompts and focused tests; README description.
+- Validation: `node --test backend/test/game-knowledge.test.js backend/test/pedestrian-profiles.test.js backend/test/world-context.test.js` passed (27 tests); `npm run check` passed.
+- Limitations: Humor and restraint are prompt-guided model behavior, not guaranteed on every turn.
+
 ## 2026-10-11T08:55:00+05:30 — Add demo video to repository
 
 - Changed: Added the user-provided demo as `demo/demo.mp4`, tracked through Git LFS, and linked it from the README.

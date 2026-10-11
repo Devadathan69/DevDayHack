@@ -36,4 +36,7 @@ test("immersion instructions forbid fourth-wall disclosure while permitting grou
   assert.match(instructions, /never automatically activated/u);
   assert.match(instructions, /fresh observed world context alone/u);
   assert.match(instructions, /Never invent an unlisted code/u);
+  assert.match(instructions, /occasional affectionate roasts/u);
+  assert.match(instructions, /never cruel/u);
+  assert.match(instructions, /Stop if asked/u);
 });
