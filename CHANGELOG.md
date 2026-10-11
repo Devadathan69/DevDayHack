@@ -4,6 +4,11 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-11T08:03:28+05:30 ? Record submitted implementation SHA and verified push
+
+- Documentation only: completed approved public team credits, repository/demo/check records and final SHA in SUBMISSION.md. Verified implementation 5f6d19717539a7dc098c236f32173f3f6b9f9635 was pushed to origin/main; this follow-up changes no demo implementation.
+- Validation: documentation links/consistency and whitespace checked. Implementation passed 95 offline tests and native/GPU checks; private values were guarded from staging. Organizer-channel submission remains a team action before 10:00 AM IST, not a claimed result of GitHub publication.
+
 ## 2026-10-11T07:43:12+05:30 — Integrate dashboard and verify world-aware release
 
 - Integration: Preserved unfinished Favor + Trust backend work in the named local stash `paused: NPC Favor + Trust before dashboard integration` at the user's request. Fetched `origin/dashboard` and fast-forwarded main to `f844fac`, which already contains the validated `3130f95` implementation; no shared history was rewritten. Favor work was not reapplied or claimed as submitted.
