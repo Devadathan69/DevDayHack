@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-11T07:47:14+05:30 — Fix WinHTTP bridge header handling
+
+- Changed: The native bridge now terminates authentication and content-type headers with CR/LF, checks `WinHttpAddRequestHeaders` results, and stops the request if header insertion fails.
+- Why: Server diagnostics showed GTA's NPC selection request arrived without valid bridge authentication.
+- Validation: `npm run build:native` succeeded and produced a 369,152-byte x86 ASI; `git diff --check` passed.
+- Limitations: Windows denied automatic replacement in the game folder. The rebuilt ASI must be copied over the game-folder copy and GTA restarted to verify selection.
+
 ## 2026-10-11T07:44:14+05:30 — Log backend NPC selection failures
 
 - Changed: The server now logs whether a game NPC selection is rejected for bridge authentication, accepted, or fails validation.

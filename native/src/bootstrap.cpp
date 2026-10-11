@@ -473,13 +473,21 @@ HttpResponse HttpRequest(const wchar_t* verb, const wchar_t* path,
 
     // Add bridge token header
     if (!bridgeToken.empty()) {
-        std::wstring hdr = L"X-Bridge-Token: " + Utf8ToWide(bridgeToken);
-        WinHttpAddRequestHeaders(req, hdr.c_str(), (DWORD)hdr.size(), WINHTTP_ADDREQ_FLAG_ADD);
+        std::wstring hdr = L"X-Bridge-Token: " + Utf8ToWide(bridgeToken) + L"\r\n";
+        if (!WinHttpAddRequestHeaders(req, hdr.c_str(), static_cast<DWORD>(hdr.size()), WINHTTP_ADDREQ_FLAG_ADD)) {
+            WriteLog(L"WinHTTP could not add the bridge authentication header.");
+            WinHttpCloseHandle(req); WinHttpCloseHandle(conn); WinHttpCloseHandle(session);
+            return resp;
+        }
     }
     // Content-Type
     if (contentType) {
-        std::wstring ct = std::wstring(L"Content-Type: ") + contentType;
-        WinHttpAddRequestHeaders(req, ct.c_str(), (DWORD)ct.size(), WINHTTP_ADDREQ_FLAG_ADD | WINHTTP_ADDREQ_FLAG_REPLACE);
+        std::wstring ct = std::wstring(L"Content-Type: ") + contentType + L"\r\n";
+        if (!WinHttpAddRequestHeaders(req, ct.c_str(), static_cast<DWORD>(ct.size()), WINHTTP_ADDREQ_FLAG_ADD | WINHTTP_ADDREQ_FLAG_REPLACE)) {
+            WriteLog(L"WinHTTP could not add the request content-type header.");
+            WinHttpCloseHandle(req); WinHttpCloseHandle(conn); WinHttpCloseHandle(session);
+            return resp;
+        }
     }
 
     BOOL sent = WinHttpSendRequest(req, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
