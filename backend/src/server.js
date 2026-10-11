@@ -259,6 +259,9 @@ export function createNpcServer({ config, profile, memory, providers = createLiv
       }
       const bridgeAuthenticated = isBridgeAuthenticated(request, url.pathname);
       if (!bridgeAuthenticated && !isBrowserAuthenticated(request)) {
+        if (request.method === "POST" && url.pathname === "/api/select") {
+          console.warn("NPC selection rejected: bridge authentication failed.");
+        }
         sendJson(response, 403, { error: "Open the local companion page first, then retry." });
         return;
       }
@@ -388,6 +391,7 @@ export function createNpcServer({ config, profile, memory, providers = createLiv
             gameSessionId: bridgeAuthenticated ? body.gameSessionId : `companion-${randomUUID()}`,
             sceneGeneration: bridgeAuthenticated ? body.sceneGeneration : 0 });
           if (previousTurnId && manager.activeTurnId !== previousTurnId) clearAudioForTurn(previousTurnId);
+          if (bridgeAuthenticated) console.log("NPC selection accepted by the local bridge.");
           sendJson(response, 200, { state: manager.state, npc: selectedProfile.displayName, npcId: selectedProfile.id,
             displayName: selectedProfile.displayName, gender: selectedProfile.gender ?? "unknown", personality: selectedProfile.personality });
           return;
@@ -449,6 +453,9 @@ export function createNpcServer({ config, profile, memory, providers = createLiv
     } catch (error) {
       if (response.headersSent || response.destroyed) return;
       const message = error instanceof Error ? error.message : "The request failed.";
+      if (request.method === "POST" && request.url?.split("?")[0] === "/api/select") {
+        console.error(`NPC selection failed: ${message}`);
+      }
       sendJson(response, 400, { error: message });
     }
   });

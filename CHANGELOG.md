@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-11T07:44:14+05:30 — Log backend NPC selection failures
+
+- Changed: The server now logs whether a game NPC selection is rejected for bridge authentication, accepted, or fails validation.
+- Why: Windows denied write access to the GTA folder, preventing installation of the native diagnostic build; server logs can still distinguish the request path without replacing the plugin.
+- Validation: Pending server restart and in-game retry.
+- Limitations: A retry is needed to capture the result. Logs contain only the request outcome/error, not bridge tokens or conversation text.
+
 ## 2026-10-11T07:42:44+05:30 — Log native NPC selection failures
 
 - Changed: The game bridge now records the HTTP status and safe server error text when NPC selection fails, and logs a missing display name separately.
